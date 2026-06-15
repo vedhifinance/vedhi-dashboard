@@ -1,4 +1,17 @@
 {
   "buy_price": 418.13,
-  "cycles": []
+  "cycles": [
+    {
+      "id": 1,
+      "entry_date": "2026-06-11",
+      "expiry_date": "2026-06-30",
+      "strike": 430.0,
+      "premium": 2.15,
+      "expiry_spot": 0.0,
+      "outcome": "Option expired \u2014 kept shares",
+      "notes": "",
+      "premium_income": 3063.75,
+      "buy_price": 418.13
+    }
+  ]
 }

@@ -38,7 +38,7 @@ def fetch_nifty():
     try:
         df = yf.download("^NSEI", period="1y", interval="1d", progress=False, auto_adjust=True)
         if df.empty or len(df) < 55: return None
-        c = df["Close"].squeeze()
+        c = df["Close"].squeeze() if hasattr(df["Close"], "squeeze") else df["Close"] if hasattr(df["Close"], "squeeze") else df["Close"]
         ema20 = c.ewm(span=20, adjust=False).mean().iloc[-1]
         ema50 = c.ewm(span=50, adjust=False).mean().iloc[-1]
         d = c.diff()
@@ -116,7 +116,7 @@ def fetch_stock(symbol):
     try:
         df = yf.download(f"{symbol}.NS", period="1y", interval="1d", progress=False, auto_adjust=True)
         if df.empty or len(df)<55: return None
-        c = df["Close"].squeeze()
+        c = df["Close"].squeeze() if hasattr(df["Close"], "squeeze") else df["Close"] if hasattr(df["Close"], "squeeze") else df["Close"]
         ema20 = c.ewm(span=20,adjust=False).mean().iloc[-1]
         ema50 = c.ewm(span=50,adjust=False).mean().iloc[-1]
         d=c.diff(); g=d.where(d>0,0).rolling(14).mean(); l=(-d.where(d<0,0)).rolling(14).mean()
@@ -293,39 +293,93 @@ with tab3:
     @st.cache_data(ttl=300)
     def fetch_bel():
         try:
-            df = yf.download("BEL.NS", period="5d", interval="1d", progress=False, auto_adjust=True)
-            if df.empty: return None
-            ltp  = float(df["Close"].iloc[-1])
-            prev = float(df["Close"].iloc[-2])
-            return {"ltp": ltp, "chg": ltp-prev, "chgp": (ltp-prev)/prev*100}
-        except: return None
+            df = yf.download("BEL.NS", period="10d", interval="1d",
+                             progress=False, auto_adjust=True)
+            if df.empty:
+                return None, "Yahoo returned empty data for BEL.NS"
+            # Handle both Series and DataFrame (yfinance v0.2+)
+            close = df["Close"]
+            if hasattr(close, "squeeze"):
+                close = close.squeeze()
+            close = close.dropna()
+            if len(close) < 2:
+                return None, f"Not enough data — only {len(close)} rows"
+            ltp  = float(close.iloc[-1])
+            prev = float(close.iloc[-2])
+            return {"ltp": ltp, "chg": ltp-prev, "chgp": (ltp-prev)/prev*100}, None
+        except Exception as e:
+            return None, str(e)
 
     BEL_SHARES = 1425
     BEL_KEY    = "bel_cycles"
 
-    # ── Session state for cycles ──────────────────────────────────────────────
+    # ── Session state ─────────────────────────────────────────────────────────
     if BEL_KEY not in st.session_state:
         st.session_state[BEL_KEY] = []
+    if "bel_buy_price" not in st.session_state:
+        st.session_state["bel_buy_price"] = 412.30
 
-    bel = fetch_bel()
+    bel, bel_err = fetch_bel()
+    if bel_err:
+        st.warning(f"BEL live price unavailable: {bel_err}. Using buy price for P&L.")
 
-    # ── Position summary ──────────────────────────────────────────────────────
+    # ── Buy price input ───────────────────────────────────────────────────────
     st.markdown("#### Position Overview")
-    cycles = st.session_state[BEL_KEY]
+    bp_col, _ = st.columns([1, 3])
+    with bp_col:
+        buy_price = st.number_input(
+            "Your buy price (₹)", min_value=1.0, step=0.05, format="%.2f",
+            value=st.session_state["bel_buy_price"],
+            help="Enter the price at which you bought BEL"
+        )
+        st.session_state["bel_buy_price"] = buy_price
+
+    # ── Calculations ──────────────────────────────────────────────────────────
+    cycles        = st.session_state[BEL_KEY]
     total_premium = sum(c["premium_income"] for c in cycles)
     num_cycles    = len(cycles)
+    invested      = round(buy_price * BEL_SHARES, 2)
+    ltp           = bel["ltp"] if bel else buy_price
+    ltp_available = bel is not None
+    stock_pnl     = round((ltp - buy_price) * BEL_SHARES, 2)
+    combined_pnl  = round(stock_pnl + total_premium, 2)
+    stock_pnl_pct = round((stock_pnl / invested) * 100, 2)
+    combined_pct  = round((combined_pnl / invested) * 100, 2)
 
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("BEL Live Price",
-                f"₹{bel['ltp']:.2f}" if bel else "—",
-                f"{bel['chg']:+.2f} ({bel['chgp']:+.2f}%)" if bel else "")
-    col2.metric("Shares held", f"{BEL_SHARES:,}", "1 lot")
-    col3.metric("Position value",
-                f"₹{bel['ltp']*BEL_SHARES:,.0f}" if bel else "—",
-                "mark to market")
-    col4.metric("Total premium earned", f"₹{total_premium:,.0f}", f"{num_cycles} cycles")
-    col5.metric("Avg premium/cycle",
-                f"₹{total_premium/num_cycles:,.0f}" if num_cycles else "—", "per cycle")
+    # ── Row 1: Position basics ─────────────────────────────────────────────────
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("BEL Live Price",
+              f"₹{ltp:.2f}",
+              f"{bel['chg']:+.2f} ({bel['chgp']:+.2f}%)" if ltp_available else "⚠ Using buy price")
+    c2.metric("Shares held",     f"{BEL_SHARES:,}", "1 lot")
+    c3.metric("Buy price",       f"₹{buy_price:.2f}")
+    c4.metric("Amount invested", f"₹{invested:,.2f}", f"{BEL_SHARES} × ₹{buy_price:.2f}")
+
+    st.markdown("")
+
+    # ── Row 2: P&L breakdown ──────────────────────────────────────────────────
+    p1, p2, p3 = st.columns(3)
+    p1.metric("📈 Stock P&L",    f"₹{stock_pnl:+,.2f}", f"{stock_pnl_pct:+.2f}% on cost")
+    p2.metric("💰 Premium income", f"₹{total_premium:,.2f}", f"{num_cycles} cycles logged", delta_color="off")
+    p3.metric("🎯 Combined P&L", f"₹{combined_pnl:+,.2f}", f"{combined_pct:+.2f}% on cost")
+
+    # Visual bar
+    if total_premium > 0 or stock_pnl != 0:
+        total_abs = max(abs(stock_pnl) + total_premium, 1)
+        s_bar = abs(stock_pnl)/total_abs*100
+        p_bar = total_premium/total_abs*100
+        sc    = "#1D9E75" if stock_pnl>=0 else "#E24B4A"
+        st.markdown(f"""
+        <div style="margin:10px 0 4px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.05em">P&L breakdown</div>
+        <div style="display:flex;height:10px;border-radius:5px;overflow:hidden;gap:2px">
+          <div style="width:{s_bar:.1f}%;background:{sc};border-radius:5px 0 0 5px"></div>
+          <div style="width:{p_bar:.1f}%;background:#185FA5;border-radius:0 5px 5px 0"></div>
+        </div>
+        <div style="display:flex;gap:16px;margin-top:5px;font-size:11px;color:#888">
+          <span><span style="color:{sc}">■</span> Stock P&L</span>
+          <span><span style="color:#185FA5">■</span> Premium income</span>
+        </div>
+        """, unsafe_allow_html=True)
 
     st.divider()
 

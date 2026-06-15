@@ -285,5 +285,189 @@ with tab2:
     st.info("Coming soon — tell me what to build here!")
 
 with tab3:
-    st.markdown("### BEL Long-Covered Strategy")
-    st.info("Coming soon — tell me what to build here!")
+    st.markdown("### 🎯 BEL Long-Covered Strategy")
+    st.markdown("1 lot · 1425 shares · Monthly covered call cycles · Premium income tracker")
+    st.divider()
+
+    # ── BEL live price ────────────────────────────────────────────────────────
+    @st.cache_data(ttl=300)
+    def fetch_bel():
+        try:
+            df = yf.download("BEL.NS", period="5d", interval="1d", progress=False, auto_adjust=True)
+            if df.empty: return None
+            ltp  = float(df["Close"].iloc[-1])
+            prev = float(df["Close"].iloc[-2])
+            return {"ltp": ltp, "chg": ltp-prev, "chgp": (ltp-prev)/prev*100}
+        except: return None
+
+    BEL_SHARES = 1425
+    BEL_KEY    = "bel_cycles"
+
+    # ── Session state for cycles ──────────────────────────────────────────────
+    if BEL_KEY not in st.session_state:
+        st.session_state[BEL_KEY] = []
+
+    bel = fetch_bel()
+
+    # ── Position summary ──────────────────────────────────────────────────────
+    st.markdown("#### Position Overview")
+    cycles = st.session_state[BEL_KEY]
+    total_premium = sum(c["premium_income"] for c in cycles)
+    num_cycles    = len(cycles)
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("BEL Live Price",
+                f"₹{bel['ltp']:.2f}" if bel else "—",
+                f"{bel['chg']:+.2f} ({bel['chgp']:+.2f}%)" if bel else "")
+    col2.metric("Shares held", f"{BEL_SHARES:,}", "1 lot")
+    col3.metric("Position value",
+                f"₹{bel['ltp']*BEL_SHARES:,.0f}" if bel else "—",
+                "mark to market")
+    col4.metric("Total premium earned", f"₹{total_premium:,.0f}", f"{num_cycles} cycles")
+    col5.metric("Avg premium/cycle",
+                f"₹{total_premium/num_cycles:,.0f}" if num_cycles else "—", "per cycle")
+
+    st.divider()
+
+    # ── Log a new cycle ───────────────────────────────────────────────────────
+    st.markdown("#### Log a covered call cycle")
+    with st.form("bel_log_form", clear_on_submit=True):
+        fc1, fc2, fc3, fc4 = st.columns(4)
+        with fc1:
+            entry_date  = st.date_input("Entry date")
+        with fc2:
+            expiry_date = st.date_input("Expiry date")
+        with fc3:
+            strike      = st.number_input("Strike price (₹)", min_value=0.0, step=0.5, format="%.2f")
+        with fc4:
+            premium     = st.number_input("Premium per share (₹)", min_value=0.0, step=0.05, format="%.2f")
+
+        fc5, fc6, fc7 = st.columns(3)
+        with fc5:
+            expiry_spot = st.number_input("BEL price at expiry (₹)", min_value=0.0, step=0.05, format="%.2f")
+        with fc6:
+            outcome     = st.selectbox("Outcome", ["Option expired — kept shares", "Shares called away at strike"])
+        with fc7:
+            notes       = st.text_input("Notes (optional)")
+
+        submitted = st.form_submit_button("💾 Save cycle", type="primary", use_container_width=True)
+
+        if submitted:
+            if premium <= 0 or strike <= 0:
+                st.error("Please enter a valid strike and premium.")
+            else:
+                premium_income = round(premium * BEL_SHARES, 2)
+                buy_price      = cycles[0]["buy_price"] if cycles else (bel["ltp"] if bel else 0)
+                stock_pnl      = round((expiry_spot - buy_price) * BEL_SHARES, 2) if expiry_spot > 0 else 0
+                net_pnl        = round(premium_income + stock_pnl, 2)
+
+                st.session_state[BEL_KEY].append({
+                    "id":           len(st.session_state[BEL_KEY]) + 1,
+                    "entry_date":   str(entry_date),
+                    "expiry_date":  str(expiry_date),
+                    "strike":       strike,
+                    "premium":      premium,
+                    "expiry_spot":  expiry_spot,
+                    "outcome":      outcome,
+                    "notes":        notes,
+                    "premium_income": premium_income,
+                    "net_pnl":      net_pnl,
+                    "buy_price":    buy_price,
+                })
+                st.success(f"✓ Cycle saved! Premium income: ₹{premium_income:,.2f}")
+                st.rerun()
+
+    st.divider()
+
+    # ── Cycle history table ───────────────────────────────────────────────────
+    if not cycles:
+        st.info("No cycles logged yet. Use the form above to record your first covered call cycle.")
+    else:
+        st.markdown("#### Cycle history")
+
+        # Build display dataframe
+        rows = []
+        for c in cycles:
+            rows.append({
+                "#":            c["id"],
+                "Entry":        c["entry_date"],
+                "Expiry":       c["expiry_date"],
+                "Strike ₹":    c["strike"],
+                "Premium/sh ₹":c["premium"],
+                "Expiry spot ₹":c["expiry_spot"],
+                "Premium income":f"₹{c['premium_income']:,.2f}",
+                "Outcome":      "✅ Expired" if "expired" in c["outcome"].lower() else "🔄 Called away",
+                "Notes":        c["notes"] or "—",
+            })
+        df_cycles = pd.DataFrame(rows)
+        st.dataframe(df_cycles, use_container_width=True, hide_index=True)
+
+        # Delete a cycle
+        del_col1, del_col2 = st.columns([1,3])
+        with del_col1:
+            del_id = st.number_input("Delete cycle #", min_value=1,
+                                     max_value=len(cycles), step=1, label_visibility="visible")
+        with del_col2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🗑️ Delete selected cycle", type="secondary"):
+                st.session_state[BEL_KEY] = [
+                    c for c in st.session_state[BEL_KEY] if c["id"] != int(del_id)
+                ]
+                # Re-number
+                for i, c in enumerate(st.session_state[BEL_KEY], 1):
+                    c["id"] = i
+                st.success(f"Cycle #{int(del_id)} deleted.")
+                st.rerun()
+
+        st.divider()
+
+        # ── Monthly premium chart ─────────────────────────────────────────────
+        st.markdown("#### Monthly premium income")
+
+        monthly = {}
+        for c in cycles:
+            month = c["expiry_date"][:7]  # YYYY-MM
+            monthly[month] = monthly.get(month, 0) + c["premium_income"]
+
+        if monthly:
+            df_chart = pd.DataFrame(
+                {"Month": list(monthly.keys()), "Premium ₹": list(monthly.values())}
+            ).sort_values("Month")
+
+            import altair as alt
+            chart = alt.Chart(df_chart).mark_bar(
+                color="#1D9E75", cornerRadiusTopLeft=4, cornerRadiusTopRight=4
+            ).encode(
+                x=alt.X("Month:O", title="Month", axis=alt.Axis(labelAngle=-30)),
+                y=alt.Y("Premium ₹:Q", title="Premium income (₹)"),
+                tooltip=["Month", alt.Tooltip("Premium ₹:Q", format=",.2f")]
+            ).properties(height=320)
+
+            # Cumulative line
+            df_chart["Cumulative"] = df_chart["Premium ₹"].cumsum()
+            line = alt.Chart(df_chart).mark_line(
+                color="#185FA5", strokeWidth=2.5, point=True
+            ).encode(
+                x="Month:O",
+                y=alt.Y("Cumulative:Q", title=""),
+                tooltip=["Month", alt.Tooltip("Cumulative:Q", title="Cumulative ₹", format=",.2f")]
+            )
+
+            st.altair_chart(chart + line, use_container_width=True)
+            st.caption("🟢 Bars = monthly premium income · 🔵 Line = cumulative total")
+
+        # Summary stats
+        st.divider()
+        st.markdown("#### Summary")
+        s1, s2, s3, s4 = st.columns(4)
+        s1.metric("Total cycles",       num_cycles)
+        s2.metric("Total premium",      f"₹{total_premium:,.2f}")
+        s3.metric("Avg per cycle",      f"₹{total_premium/num_cycles:,.2f}" if num_cycles else "—")
+        s4.metric("Avg per share",      f"₹{total_premium/BEL_SHARES/num_cycles:.2f}" if num_cycles else "—")
+
+        # Download
+        st.download_button(
+            "⬇ Download cycle history",
+            pd.DataFrame(rows).to_csv(index=False),
+            "bel_covered_call_history.csv", "text/csv"
+        )

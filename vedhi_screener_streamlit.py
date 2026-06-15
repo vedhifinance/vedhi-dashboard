@@ -187,6 +187,83 @@ def fetch_stock(symbol):
     except:
         return None
 
+# ── Screener controls (above tabs) ─────────────────────────────────────────
+st.markdown("### Nifty 50 Screener")
+col_f1, col_f2, col_f3, col_f4, col_f5 = st.columns([1,1,1,1,1])
+with col_f1:
+    rsi_min = st.slider("Min RSI", 0, 90, 15)
+with col_f2:
+    rsi_max = st.slider("Max RSI", 10, 90, 40)
+with col_f3:
+    setup_only = st.checkbox("EMA zone only", value=False, help="Price between EMA 20 and EMA 50")
+with col_f4:
+    bull_only = st.checkbox("Bullish trend only", value=False, help="EMA 20 > EMA 50")
+with col_f5:
+    run = st.button("▶ Run screener", type="primary", use_container_width=True)
+
+if run:
+    results = []
+    progress = st.progress(0, text="Starting…")
+    for i, (sym, meta) in enumerate(NIFTY50.items()):
+        progress.progress((i+1)/len(NIFTY50), text=f"Fetching {sym}…")
+        data = fetch_stock(sym)
+        if data:
+            ltp, ema20, ema50 = data["LTP"], data["EMA20"], data["EMA50"]
+            ema_ok    = min(ema20,ema50) <= ltp <= max(ema20,ema50)
+            bull      = ema20 > ema50
+            macd_bull = data["Histogram"] > 0
+            results.append({
+                "Stock":     sym,
+                "Sector":    meta["sector"],
+                "LTP ₹":    data["LTP"],
+                "Chg%":      data["Chg%"],
+                "RSI":       data["RSI"],
+                "EMA 20":    data["EMA20"],
+                "EMA 50":    data["EMA50"],
+                "MACD":      data["MACD"],
+                "Signal":    data["Signal"],
+                "Histogram": data["Histogram"],
+                "EMA Zone":  "Yes" if ema_ok else "No",
+                "Trend":     "Bull" if bull else "Bear",
+                "MACD Bias": "Bull" if macd_bull else "Bear",
+                "Lot":       meta["lot"],
+            })
+    progress.empty()
+    if not results:
+        st.warning("No data fetched. Try again.")
+    else:
+        df = pd.DataFrame(results)
+        df = df[(df["RSI"] >= rsi_min) & (df["RSI"] <= rsi_max)]
+        if setup_only: df = df[df["EMA Zone"] == "Yes"]
+        if bull_only:  df = df[df["Trend"] == "Bull"]
+        df = df.sort_values("RSI").reset_index(drop=True)
+        df.index += 1
+        m1,m2,m3,m4,m5 = st.columns(5)
+        m1.metric("Screened", len(results))
+        m2.metric("Matches",  len(df))
+        m3.metric("EMA zone", len(df[df["EMA Zone"]=="Yes"]) if len(df) else 0)
+        m4.metric("Bullish",  len(df[df["Trend"]=="Bull"]) if len(df) else 0)
+        m5.metric("Avg RSI",  round(df["RSI"].mean(),1) if len(df) else "—")
+        if df.empty:
+            st.info("No stocks match the filters.")
+        else:
+            def color_rsi(val):
+                if val < 20:   return "color:#185FA5;font-weight:600"
+                elif val < 30: return "color:#1D9E75;font-weight:600"
+                elif val < 40: return "color:#D98A1A;font-weight:600"
+                elif val > 70: return "color:#E24B4A;font-weight:600"
+                return ""
+            def color_chg(val):  return "color:#1D9E75" if val>=0 else "color:#E24B4A"
+            def color_hist(val): return "color:#1D9E75" if val>=0 else "color:#E24B4A"
+            styled = df.style                .map(color_rsi,  subset=["RSI"])                .map(color_chg,  subset=["Chg%"])                .map(color_hist, subset=["Histogram"])                .format({"LTP ₹":"₹{:.2f}","Chg%":"{:+.2f}%","RSI":"{:.1f}",
+                         "EMA 20":"₹{:.2f}","EMA 50":"₹{:.2f}",
+                         "MACD":"{:.2f}","Signal":"{:.2f}","Histogram":"{:.2f}","Lot":"{:,}"})
+            st.dataframe(styled, use_container_width=True, height=480)
+            st.caption("RSI 14 · EMA 20/50 · MACD(12,26,9) · Yahoo Finance · Lot sizes Jun 2026 · Not financial advice")
+            st.download_button("⬇ Download CSV", df.to_csv(index=False), "vedhi_screener.csv", "text/csv")
+
+st.divider()
+
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 tab1, tab2, tab3 = st.tabs([
     "📈 Nifty 50 Swing Strategy",
@@ -198,124 +275,9 @@ tab1, tab2, tab3 = st.tabs([
 # TAB 1 — SWING SCREENER
 # ══════════════════════════════════════════════════════════════════════════════
 with tab1:
-    st.markdown("### Nifty 50 Swing Screener")
-    st.markdown("Live RSI · EMA 20 · EMA 50 · MACD · Ranked by lowest RSI · Lot sizes verified Jun 2026")
+    st.markdown("### Nifty 50 Swing Strategy")
+    st.info("Use the **▶ Run screener** above to scan all 50 Nifty stocks. Results appear above the tabs.")
 
-    # Sidebar-style filters inside tab
-    col_f1, col_f2, col_f3, col_f4 = st.columns(4)
-    with col_f1:
-        rsi_min = st.slider("Min RSI", 0, 90, 15)
-    with col_f2:
-        rsi_max = st.slider("Max RSI", 10, 90, 40)
-    with col_f3:
-        setup_only = st.checkbox("EMA zone only", value=False,
-                                  help="Price between EMA 20 and EMA 50")
-    with col_f4:
-        bull_only = st.checkbox("Bullish trend only", value=False,
-                                 help="EMA 20 > EMA 50")
-
-    run = st.button("▶ Run screener", type="primary", use_container_width=False)
-
-    if run:
-        results = []
-        progress = st.progress(0, text="Starting…")
-
-        for i, (sym, meta) in enumerate(NIFTY50.items()):
-            progress.progress((i+1)/len(NIFTY50), text=f"Fetching {sym}…")
-            data = fetch_stock(sym)
-            if data:
-                ltp, ema20, ema50 = data["LTP"], data["EMA20"], data["EMA50"]
-                ema_ok  = min(ema20,ema50) <= ltp <= max(ema20,ema50)
-                bull    = ema20 > ema50
-                macd_bull = data["Histogram"] > 0
-                results.append({
-                    "Stock":    sym,
-                    "Sector":   meta["sector"],
-                    "LTP ₹":   data["LTP"],
-                    "Chg%":     data["Chg%"],
-                    "RSI":      data["RSI"],
-                    "EMA 20":   data["EMA20"],
-                    "EMA 50":   data["EMA50"],
-                    "MACD":     data["MACD"],
-                    "Signal":   data["Signal"],
-                    "Histogram":data["Histogram"],
-                    "EMA Zone": "✓ Yes" if ema_ok else "No",
-                    "Trend":    "▲ Bull" if bull else "▼ Bear",
-                    "MACD Bias":"▲ Bull" if macd_bull else "▼ Bear",
-                    "Lot":      meta["lot"],
-                })
-
-        progress.empty()
-
-        if not results:
-            st.warning("No data fetched. Please try again.")
-        else:
-            df = pd.DataFrame(results)
-
-            # Apply filters
-            df = df[(df["RSI"] >= rsi_min) & (df["RSI"] <= rsi_max)]
-            if setup_only:
-                df = df[df["EMA Zone"] == "✓ Yes"]
-            if bull_only:
-                df = df[df["Trend"] == "▲ Bull"]
-
-            df = df.sort_values("RSI").reset_index(drop=True)
-            df.index += 1
-
-            # Summary metrics
-            st.divider()
-            m1,m2,m3,m4,m5 = st.columns(5)
-            m1.metric("Stocks screened", len(results))
-            m2.metric("Matches found",   len(df))
-            m3.metric("In EMA zone",     len(df[df["EMA Zone"]=="✓ Yes"]))
-            m4.metric("Bullish trend",   len(df[df["Trend"]=="▲ Bull"]))
-            m5.metric("Avg RSI",         round(df["RSI"].mean(),1) if len(df) else "—")
-
-            st.divider()
-
-            if df.empty:
-                st.info("No stocks match the current filter settings.")
-            else:
-                # Color RSI column
-                def color_rsi(val):
-                    if val < 20:   return "color:#185FA5;font-weight:600"
-                    elif val < 30: return "color:#1D9E75;font-weight:600"
-                    elif val < 40: return "color:#D98A1A;font-weight:600"
-                    elif val > 70: return "color:#E24B4A;font-weight:600"
-                    return ""
-
-                def color_chg(val):
-                    return "color:#1D9E75" if val >= 0 else "color:#E24B4A"
-
-                def color_hist(val):
-                    return "color:#1D9E75" if val >= 0 else "color:#E24B4A"
-
-                styled = df.style\
-                    .map(color_rsi, subset=["RSI"])\
-                    .map(color_chg, subset=["Chg%"])\
-                    .map(color_hist, subset=["Histogram"])\
-                    .format({
-                        "LTP ₹":    "₹{:.2f}",
-                        "Chg%":     "{:+.2f}%",
-                        "RSI":      "{:.1f}",
-                        "EMA 20":   "₹{:.2f}",
-                        "EMA 50":   "₹{:.2f}",
-                        "MACD":     "{:.2f}",
-                        "Signal":   "{:.2f}",
-                        "Histogram":"{:.2f}",
-                        "Lot":      "{:,}",
-                    })
-
-                st.dataframe(styled, use_container_width=True, height=500)
-                st.caption("RSI 14 · EMA 20/50 · MACD(12,26,9) · Data: Yahoo Finance · Lot sizes: Jun 2026 · Not financial advice")
-
-                # Export
-                csv = df.to_csv(index=False)
-                st.download_button("⬇ Download CSV", csv, "vedhi_swing_screener.csv", "text/csv")
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 2 — SWING COVERED STRATEGY (placeholder)
-# ══════════════════════════════════════════════════════════════════════════════
 with tab2:
     st.markdown("### Nifty 50 Swing-Covered Strategy")
     st.info("This section is coming soon. Tell me what to build here!")

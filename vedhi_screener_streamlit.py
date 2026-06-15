@@ -365,6 +365,96 @@ with tab2:
 - 🔴 Nifty below EMA 200 = avoid all setups, capital preservation mode
         """)
 
+    with st.expander("📚 Indicator Glossary — what each filter means and why — click to open"):
+        g1, g2 = st.columns(2)
+        with g1:
+            st.markdown("""
+**📌 Filter 1 — EMA 200 (Structural Trend)**
+EMA 200 = 200-day Exponential Moving Average. This is the most important long-term trend line used by fund managers and institutions worldwide.
+- Price **above** EMA 200 = stock is in a **long-term uptrend** — bulls are in control
+- Price **below** EMA 200 = stock is in a **long-term downtrend** — avoid completely
+- We require price to be **5% above** EMA 200, not just barely above it. This eliminates stocks that are recovering from a downtrend but haven't confirmed strength yet.
+
+---
+**📌 Filter 2 — Weekly EMA 20 (Weekly Trend)**
+Same as EMA 20 but calculated on **weekly candles** instead of daily. This checks if the medium-term (multi-month) trend is bullish.
+- Weekly close **above** Weekly EMA 20 = weekly uptrend intact
+- Weekly close **below** Weekly EMA 20 = the daily setup is going against the weekly flow — dangerous
+- A daily bounce inside a weekly downtrend is a **trap**, not an opportunity.
+
+---
+**📌 Filter 3 — EMA Zone / Value Zone**
+EMA 20 = 20-day average. EMA 50 = 50-day average. The **zone between them** is where institutional buyers typically enter during a healthy pullback in an uptrend.
+- Price **between EMA 20 and EMA 50** = stock has pulled back to support without breaking trend — best entry zone
+- EMA 20 **above** EMA 50 = short-term trend is bullish (golden cross)
+- We also check that EMA 20 and EMA 50 are **at least 1% apart** — if they are too close the trend is flat, not a real setup
+- Think of this zone as the market offering a **discount in an uptrend**
+
+---
+**📌 Filter 4 — RSI 35 to 45**
+RSI = Relative Strength Index (14-day). Measures how overbought or oversold a stock is on a scale of 0 to 100.
+- RSI **below 35** = stock may be broken or in serious trouble — avoid
+- RSI **35 to 45** = sweet spot — oversold enough to offer value, not so low that something is fundamentally wrong
+- RSI **above 45** = not oversold enough — wait for a better pullback
+- The 35–45 band is specifically chosen to match the EMA zone pullback — when both align, confidence is very high
+            """)
+        with g2:
+            st.markdown("""
+**📌 Filter 5 — Volume 1.5x Average**
+Volume = number of shares traded today. We compare it to the 20-day average volume.
+- Volume **≥ 1.5x average** = institutional money is participating — confirms the move is real
+- Volume **< 1.5x average** = the candle pattern could be random noise with no conviction
+- High volume on a bullish candle at support = **smart money buying**. This is the most important confirmation after the candle pattern.
+- 2x volume or more = extremely strong confirmation, adds to score
+
+---
+**📌 Filter 6 — Trigger Candle**
+The candle pattern on today's daily chart. Acts as the **entry signal** — we don't enter until the market shows us a reversal sign.
+
+🔨 **Hammer**
+- Small body at the top of the candle
+- Long lower wick (at least 2x the body)
+- Tiny or no upper wick
+- Means: sellers pushed price down but buyers fought back strongly — rejection of lower prices
+
+🕯 **Bullish Engulfing**
+- Previous day was a red (bearish) candle
+- Today's green candle body completely covers the previous red candle body
+- Means: buyers completely overwhelmed sellers — strong reversal signal
+- This is the **strongest** of the three patterns
+
+💚 **Strong Green Close**
+- Green candle (close above open)
+- Body is at least 60% of the full day range
+- Closes in the top 25% of the day's range
+- Means: buyers were in control all day and held gains — strong momentum
+
+---
+**📌 Filter 7 — Market Breadth (Nifty EMA 50)**
+Individual stocks follow the broader market. Even the best setup fails if the market is in a downtrend.
+- Nifty **above EMA 50** = market is healthy, take all setups
+- Nifty **between EMA 50 and EMA 200** = market is weak, take only highest score setups
+- Nifty **below EMA 200** = bear market, scanner is disabled automatically — protect capital
+
+---
+**📌 Confidence Score (out of 10)**
+The scanner scores each qualifying stock:
+- 5 points for passing all 5 original filters
+- +1 for weekly trend confirmation
+- +1 for EMA 200 buffer confirmation
+- +1 for volume ≥ 2x (extra strong)
+- +1 for Bullish Engulfing candle (strongest pattern)
+- +1 for R:R ratio ≥ 2:1
+- **Score 8+** = very high confidence · **6–7** = good setup · **5** = minimum qualifying
+
+---
+**📌 R:R Ratio (Risk to Reward)**
+Risk = entry price minus stop loss. Reward = target minus entry price.
+- R:R of 2:1 means you make ₹2 for every ₹1 risked — minimum acceptable
+- R:R of 3:1 or above = excellent setup, prioritise these
+            """)
+        st.caption("All indicators calculated from Yahoo Finance 2-year daily data · Not financial advice")
+
     # ── Market breadth check ──────────────────────────────────────────────────
     @st.cache_data(ttl=300)
     def check_market_breadth():

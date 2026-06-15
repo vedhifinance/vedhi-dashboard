@@ -189,12 +189,15 @@ if run:
             def cc(v): return "color:#1D9E75" if v>=0 else "color:#E24B4A"
             def ct(v): return "background-color:#D6F5E3;color:#1A5C35;font-weight:600" if v=="Bull" \
                         else "background-color:#FDDCDC;color:#7A1A1A;font-weight:600"
+            def cz(v): return "background-color:#D6F5E3;color:#1A5C35;font-weight:600" if v=="Yes" \
+                        else "background-color:#FDDCDC;color:#7A1A1A;font-weight:600"
             styled = df.style\
                 .map(cr, subset=["RSI"])\
                 .map(cc, subset=["Chg%"])\
                 .map(cc, subset=["Histogram"])\
                 .map(ct, subset=["Trend"])\
                 .map(ct, subset=["MACD Bias"])\
+                .map(cz, subset=["EMA Zone"])\
                 .format({"LTP ₹":"₹{:.2f}","Chg%":"{:+.2f}%","RSI":"{:.1f}",
                          "EMA 20":"₹{:.2f}","EMA 50":"₹{:.2f}",
                          "MACD":"{:.2f}","Signal":"{:.2f}","Histogram":"{:.2f}","Lot":"{:,}"})

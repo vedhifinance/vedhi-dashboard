@@ -227,9 +227,9 @@ with tab1:
                     return "color:#1D9E75" if val >= 0 else "color:#E24B4A"
 
                 styled = df.style\
-                    .applymap(color_rsi, subset=["RSI"])\
-                    .applymap(color_chg, subset=["Chg%"])\
-                    .applymap(color_hist, subset=["Histogram"])\
+                    .map(color_rsi, subset=["RSI"])\
+                    .map(color_chg, subset=["Chg%"])\
+                    .map(color_hist, subset=["Histogram"])\
                     .format({
                         "LTP ₹":    "₹{:.2f}",
                         "Chg%":     "{:+.2f}%",

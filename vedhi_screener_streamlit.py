@@ -334,31 +334,70 @@ with tab2:
     st.info("Coming soon — tell me what to build here!")
 
 with tab3:
-    import json, os
+    import json, base64
+    import requests
 
     st.markdown("### 🎯 BEL Long-Covered Strategy")
-    st.markdown("1 lot · 1425 shares · Monthly covered call cycles · Data saved to GitHub repo")
+    st.markdown("1 lot · 1425 shares · Monthly covered call cycles · Data saved to GitHub")
     st.divider()
 
     BEL_SHARES = 1425
     DATA_FILE  = "bel_data.json"
 
-    # ── File-based persistence ────────────────────────────────────────────────
-    def load_data():
-        if os.path.exists(DATA_FILE):
-            try:
-                with open(DATA_FILE, "r") as f:
-                    return json.load(f)
-            except: pass
-        return {"buy_price": 412.30, "cycles": []}
+    # ── GitHub storage helpers ────────────────────────────────────────────────
+    def gh_headers():
+        token = st.secrets.get("GITHUB_TOKEN", "")
+        return {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
 
-    def save_data(data):
-        with open(DATA_FILE, "w") as f:
-            json.dump(data, f, indent=2)
+    def gh_repo():
+        return st.secrets.get("GITHUB_REPO", "")
 
-    # Load on every run
-    if "bel_data" not in st.session_state:
-        st.session_state["bel_data"] = load_data()
+    def load_data_github():
+        try:
+            url = f"https://api.github.com/repos/{gh_repo()}/contents/{DATA_FILE}"
+            r = requests.get(url, headers=gh_headers(), timeout=10)
+            if r.status_code == 200:
+                j = r.json()
+                decoded = base64.b64decode(j["content"]).decode("utf-8")
+                data = json.loads(decoded)
+                data["_sha"] = j["sha"]
+                return data
+            elif r.status_code == 404:
+                return {"buy_price": 412.30, "cycles": [], "_sha": None}
+            else:
+                st.error(f"GitHub load error: {r.status_code} — {r.text[:200]}")
+                return {"buy_price": 412.30, "cycles": [], "_sha": None}
+        except Exception as e:
+            st.error(f"Load error: {e}")
+            return {"buy_price": 412.30, "cycles": [], "_sha": None}
+
+    def save_data_github(data):
+        try:
+            sha = data.pop("_sha", None)
+            content_str = json.dumps(data, indent=2)
+            encoded = base64.b64encode(content_str.encode()).decode()
+            url = f"https://api.github.com/repos/{gh_repo()}/contents/{DATA_FILE}"
+            payload = {
+                "message": "Update BEL cycle data",
+                "content": encoded,
+            }
+            if sha:
+                payload["sha"] = sha
+            r = requests.put(url, headers=gh_headers(), json=payload, timeout=10)
+            if r.status_code in [200, 201]:
+                data["_sha"] = r.json()["content"]["sha"]
+                return True
+            else:
+                st.error(f"Save error: {r.status_code} — {r.text[:200]}")
+                return False
+        except Exception as e:
+            st.error(f"Save error: {e}")
+            return False
+
+    # ── Load data ─────────────────────────────────────────────────────────────
+    if "bel_data" not in st.session_state or st.session_state.get("bel_reload", True):
+        st.session_state["bel_data"]   = load_data_github()
+        st.session_state["bel_reload"] = False
 
     db = st.session_state["bel_data"]
 
@@ -375,7 +414,7 @@ with tab3:
             if len(close) < 2: return None, "Not enough rows"
             ltp  = float(close.iloc[-1])
             prev = float(close.iloc[-2])
-            return {"ltp":ltp, "chg":ltp-prev, "chgp":(ltp-prev)/prev*100}, None
+            return {"ltp":ltp,"chg":ltp-prev,"chgp":(ltp-prev)/prev*100}, None
         except Exception as e:
             return None, str(e)
 
@@ -390,14 +429,14 @@ with tab3:
         new_buy = st.number_input(
             "Your buy price (₹)", min_value=1.0, step=0.05,
             format="%.2f", value=float(db["buy_price"]),
-            help="Saved automatically"
+            help="Saved automatically to GitHub"
         )
         if new_buy != db["buy_price"]:
             db["buy_price"] = new_buy
-            save_data(db)
+            save_data_github(db)
 
     buy_price     = db["buy_price"]
-    cycles        = db["cycles"]
+    cycles        = db.get("cycles", [])
     total_premium = sum(float(c["premium_income"]) for c in cycles)
     num_cycles    = len(cycles)
     invested      = round(buy_price * BEL_SHARES, 2)
@@ -477,9 +516,10 @@ with tab3:
                     "buy_price":    float(buy_price),
                 })
                 db["cycles"] = cycles
-                save_data(db)
-                st.success(f"✓ Saved! Premium income: ₹{prem_income:,.2f}")
-                st.rerun()
+                if save_data_github(db):
+                    st.success(f"✓ Saved to GitHub! Premium income: ₹{prem_income:,.2f}")
+                    st.session_state["bel_reload"] = True
+                    st.rerun()
 
     st.divider()
 
@@ -503,7 +543,6 @@ with tab3:
             })
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-        # Delete
         d1,d2 = st.columns([1,3])
         with d1:
             del_id = st.number_input("Delete by ID", min_value=1, step=1, value=1)
@@ -511,9 +550,10 @@ with tab3:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("🗑️ Delete cycle", type="secondary"):
                 db["cycles"] = [c for c in cycles if c["id"] != int(del_id)]
-                save_data(db)
-                st.success(f"Cycle #{int(del_id)} deleted.")
-                st.rerun()
+                if save_data_github(db):
+                    st.success(f"✓ Cycle #{int(del_id)} deleted.")
+                    st.session_state["bel_reload"] = True
+                    st.rerun()
 
         st.divider()
 
@@ -531,7 +571,6 @@ with tab3:
                 "Premium ₹": list(monthly.values())
             }).sort_values("Month")
             df_ch["Cumulative"] = df_ch["Premium ₹"].cumsum()
-
             bars = alt.Chart(df_ch).mark_bar(
                 color="#1D9E75", cornerRadiusTopLeft=4, cornerRadiusTopRight=4
             ).encode(
@@ -549,7 +588,6 @@ with tab3:
             st.altair_chart(bars + line, use_container_width=True, theme=None)
             st.caption("🟢 Bars = monthly premium · 🔵 Line = cumulative total")
 
-        # ── Summary ───────────────────────────────────────────────────────────
         st.divider()
         s1,s2,s3,s4 = st.columns(4)
         nc = len(cycles)

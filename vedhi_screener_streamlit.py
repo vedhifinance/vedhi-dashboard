@@ -180,50 +180,66 @@ if run:
         if df.empty:
             st.info("No stocks match the filters.")
         else:
-            # Inject CSS to style AG Grid headers — black bg, white text
-            st.markdown("""
-            <style>
-            .stDataFrame [data-testid="stDataFrameResizable"] th,
-            .stDataFrame thead th,
-            div[data-testid="stDataFrame"] th,
-            .ag-header-cell,
-            .ag-header-cell-text {
-                background-color: #1A1A18 !important;
-                color: white !important;
-                font-weight: 600 !important;
-                font-size: 12px !important;
-            }
-            .ag-header {
-                background-color: #1A1A18 !important;
-            }
-            .ag-header-row {
-                background-color: #1A1A18 !important;
-            }
-            </style>
-            """, unsafe_allow_html=True)
+            # Remove injected CSS — not needed with HTML table
+            # Build HTML table with black headers, white text
+            cols = ["Stock","Sector","LTP ₹","Chg%","RSI","EMA 20","EMA 50",
+                    "MACD","Signal","Histogram","EMA Zone","Trend","MACD Bias","Lot"]
 
-            def cr(v):
-                if v<20: return "color:#185FA5;font-weight:600"
-                if v<30: return "color:#1D9E75;font-weight:600"
-                if v<40: return "color:#D98A1A;font-weight:600"
-                if v>70: return "color:#E24B4A;font-weight:600"
+            def cell_style(col, val):
+                if col == "RSI":
+                    if val < 20:   return "color:#185FA5;font-weight:600"
+                    if val < 30:   return "color:#1D9E75;font-weight:600"
+                    if val < 40:   return "color:#D98A1A;font-weight:600"
+                    if val > 70:   return "color:#E24B4A;font-weight:600"
+                if col in ["Chg%","Histogram"]:
+                    return "color:#1D9E75;font-weight:500" if val>=0 else "color:#E24B4A;font-weight:500"
+                if col == "Trend":
+                    return "background:#D6F5E3;color:#1A5C35;font-weight:600" if val=="Bull" \
+                        else "background:#FDDCDC;color:#7A1A1A;font-weight:600"
+                if col == "MACD Bias":
+                    return "background:#D6F5E3;color:#1A5C35;font-weight:600" if val=="Bull" \
+                        else "background:#FDDCDC;color:#7A1A1A;font-weight:600"
+                if col == "EMA Zone":
+                    return "background:#D6F5E3;color:#1A5C35;font-weight:600" if val=="Yes" \
+                        else "background:#FDDCDC;color:#7A1A1A;font-weight:600"
                 return ""
-            def cc(v): return "color:#1D9E75" if v>=0 else "color:#E24B4A"
-            def ct(v): return "background-color:#D6F5E3;color:#1A5C35;font-weight:600" if v=="Bull" \
-                        else "background-color:#FDDCDC;color:#7A1A1A;font-weight:600"
-            def cz(v): return "background-color:#D6F5E3;color:#1A5C35;font-weight:600" if v=="Yes" \
-                        else "background-color:#FDDCDC;color:#7A1A1A;font-weight:600"
-            styled = df.style\
-                .map(cr, subset=["RSI"])\
-                .map(cc, subset=["Chg%"])\
-                .map(cc, subset=["Histogram"])\
-                .map(ct, subset=["Trend"])\
-                .map(ct, subset=["MACD Bias"])\
-                .map(cz, subset=["EMA Zone"])\
-                .format({"LTP ₹":"₹{:.2f}","Chg%":"{:+.2f}%","RSI":"{:.1f}",
-                         "EMA 20":"₹{:.2f}","EMA 50":"₹{:.2f}",
-                         "MACD":"{:.2f}","Signal":"{:.2f}","Histogram":"{:.2f}","Lot":"{:,}"})
-            st.dataframe(styled, use_container_width=True, height=480)
+
+            def fmt_val(col, val):
+                if col == "LTP ₹":    return f"₹{val:.2f}"
+                if col == "Chg%":     return f"{val:+.2f}%"
+                if col == "RSI":      return f"{val:.1f}"
+                if col in ["EMA 20","EMA 50"]: return f"₹{val:.2f}"
+                if col in ["MACD","Signal","Histogram"]: return f"{val:.2f}"
+                if col == "Lot":      return f"{int(val):,}"
+                return str(val)
+
+            header_html = "".join(
+                f'<th style="background:#1A1A18;color:white;font-weight:600;font-size:12px;'
+                f'padding:10px 12px;text-align:left;white-space:nowrap;border-bottom:2px solid #333;">'
+                f'{c}</th>' for c in cols
+            )
+
+            rows_html = ""
+            for i, row in df.iterrows():
+                bg = "#FAFAF8" if i % 2 == 0 else "#FFFFFF"
+                row_html = f'<tr style="background:{bg}">'
+                for col in cols:
+                    val = row[col]
+                    style = cell_style(col, val)
+                    display = fmt_val(col, val)
+                    row_html += f'<td style="padding:9px 12px;font-size:13px;{style};border-bottom:0.5px solid #F0EFEC;">{display}</td>'
+                row_html += "</tr>"
+                rows_html += row_html
+
+            table_html = f"""
+            <div style="overflow-x:auto;border:0.5px solid #E0DED8;border-radius:10px;overflow:hidden">
+              <table style="width:100%;border-collapse:collapse;font-family:system-ui,sans-serif">
+                <thead><tr>{header_html}</tr></thead>
+                <tbody>{rows_html}</tbody>
+              </table>
+            </div>
+            """
+            st.markdown(table_html, unsafe_allow_html=True)
             st.caption("RSI(14) · EMA(20,50) · MACD(12,26,9) · Yahoo Finance · Not financial advice")
             st.download_button("⬇ Download CSV", df.to_csv(index=False), "vedhi_screener.csv", "text/csv")
 

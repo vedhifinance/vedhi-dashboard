@@ -316,7 +316,9 @@ if run:
             st.download_button("⬇ Download CSV", df.to_csv(index=False), "vedhi_screener.csv", "text/csv")
 
 
+st.markdown("<br>", unsafe_allow_html=True)
 st.divider()
+st.markdown("<br>", unsafe_allow_html=True)
 with st.expander("📖 Indicator Glossary — click to open"):
     col_a, col_b = st.columns(2)
     with col_a:

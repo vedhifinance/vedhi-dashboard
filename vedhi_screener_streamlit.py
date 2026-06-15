@@ -15,9 +15,73 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ── Header ────────────────────────────────────────────────────────────────────
+# ── Header ─────────────────────────────────────────────────────────────────
 st.markdown("## 📈 Vedhi Trading Dashboard")
-st.markdown("**Nifty 50 Strategy Hub** &nbsp;|&nbsp; NSE India &nbsp;|&nbsp; Live Data via Yahoo Finance")
+st.markdown("**Nifty 50 Strategy Hub** | NSE India | Live Data via Yahoo Finance")
+
+# ── Nifty 50 Index Live Indicators ──────────────────────────────────────────
+@st.cache_data(ttl=300)
+def fetch_nifty_indicators():
+    try:
+        df = yf.download("^NSEI", period="1y", interval="1d", progress=False, auto_adjust=True)
+        if df.empty or len(df) < 55:
+            return None
+        close = df["Close"].squeeze()
+        ema20 = close.ewm(span=20, adjust=False).mean().iloc[-1]
+        ema50 = close.ewm(span=50, adjust=False).mean().iloc[-1]
+        delta = close.diff()
+        gain  = delta.where(delta>0,0).rolling(14).mean()
+        loss  = (-delta.where(delta<0,0)).rolling(14).mean()
+        rsi   = (100 - (100/(1+gain/loss.replace(0,1e-10)))).iloc[-1]
+        ema12     = close.ewm(span=12, adjust=False).mean()
+        ema26     = close.ewm(span=26, adjust=False).mean()
+        macd_line = ema12 - ema26
+        signal    = macd_line.ewm(span=9, adjust=False).mean()
+        histogram = macd_line - signal
+        ltp  = close.iloc[-1]
+        prev = close.iloc[-2]
+        chg  = ltp - prev
+        chgp = (chg/prev)*100
+        return {
+            "ltp":float(ltp), "chg":float(chg), "chgp":float(chgp),
+            "rsi":round(float(rsi),1),
+            "ema20":round(float(ema20),1),
+            "ema50":round(float(ema50),1),
+            "macd":round(float(macd_line.iloc[-1]),2),
+            "signal":round(float(signal.iloc[-1]),2),
+            "histogram":round(float(histogram.iloc[-1]),2),
+        }
+    except Exception as e:
+        return None
+
+nifty = fetch_nifty_indicators()
+
+if nifty:
+    st.markdown("### Nifty 50 — Live Technical Indicators")
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    chg_sign = "+" if nifty["chg"] >= 0 else ""
+    arrow    = "▲" if nifty["chg"] >= 0 else "▼"
+
+    col1.metric(
+        "Nifty 50",
+        f"{nifty['ltp']:,.2f}",
+        f"{arrow} {abs(nifty['chg']):.2f} ({abs(nifty['chgp']):.2f}%)"
+    )
+    rsi_label = "Oversold" if nifty["rsi"]<30 else "Value zone" if nifty["rsi"]<40 else "Neutral" if nifty["rsi"]<60 else "Elevated" if nifty["rsi"]<70 else "Overbought"
+    col2.metric("RSI (14)", f"{nifty['rsi']}", rsi_label)
+    col3.metric("EMA 20", f"{nifty['ema20']:,.1f}",
+                "Price above" if nifty["ltp"] > nifty["ema20"] else "Price below")
+    col4.metric("EMA 50", f"{nifty['ema50']:,.1f}",
+                "Price above" if nifty["ltp"] > nifty["ema50"] else "Price below")
+    col5.metric("MACD", f"{nifty['macd']:+.2f}",
+                f"Signal {nifty['signal']:+.2f}")
+    col6.metric("Histogram", f"{nifty['histogram']:+.2f}",
+                "Bullish" if nifty["histogram"] >= 0 else "Bearish")
+
+    st.caption(f"Auto-refreshes every 5 min | Source: Yahoo Finance | {pd.Timestamp.now().strftime('%d %b %Y %H:%M')} IST")
+else:
+    st.warning("Could not fetch Nifty 50 data — please refresh the page.")
+
 st.divider()
 
 # ── Nifty 50 tickers ─────────────────────────────────────────────────────────

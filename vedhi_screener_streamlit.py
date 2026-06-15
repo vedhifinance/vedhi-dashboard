@@ -185,7 +185,9 @@ if run:
             cols = ["Stock","Sector","LTP ₹","Chg%","RSI","EMA 20","EMA 50",
                     "MACD","Signal","Histogram","EMA Zone","Trend","MACD Bias","Lot"]
 
-            def cell_style(col, val):
+            def cell_style(col, val, row=None):
+                if col == "Stock":
+                    return "background:#1A1A18;color:white;font-weight:700"
                 if col == "RSI":
                     if val < 20:   return "color:#185FA5;font-weight:600"
                     if val < 30:   return "color:#1D9E75;font-weight:600"
@@ -225,7 +227,7 @@ if run:
                 row_html = f'<tr style="background:{bg}">'
                 for col in cols:
                     val = row[col]
-                    style = cell_style(col, val)
+                    style = cell_style(col, val, row)
                     display = fmt_val(col, val)
                     row_html += f'<td style="padding:9px 12px;font-size:13px;{style};border-bottom:0.5px solid #F0EFEC;">{display}</td>'
                 row_html += "</tr>"

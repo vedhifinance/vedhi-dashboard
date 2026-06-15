@@ -217,7 +217,7 @@ if run:
 
             header_html = "".join(
                 f'<th style="background:#1A1A18;color:white;font-weight:600;font-size:12px;'
-                f'padding:10px 12px;text-align:left;white-space:nowrap;border-bottom:2px solid #333;">'
+                f'padding:10px 12px;text-align:left;white-space:nowrap;border-bottom:2px solid #000;border-right:0.5px solid #444;">'
                 f'{c}</th>' for c in cols
             )
 
@@ -229,7 +229,7 @@ if run:
                     val = row[col]
                     style = cell_style(col, val, row)
                     display = fmt_val(col, val)
-                    row_html += f'<td style="padding:9px 12px;font-size:13px;{style};border-bottom:0.5px solid #F0EFEC;">{display}</td>'
+                    row_html += f'<td style="padding:9px 12px;font-size:13px;{style};border-bottom:0.5px solid #AAAAAA;border-right:0.5px solid #AAAAAA;">{display}</td>'
                 row_html += "</tr>"
                 rows_html += row_html
 

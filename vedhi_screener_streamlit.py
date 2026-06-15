@@ -315,6 +315,105 @@ if run:
             st.caption("RSI 14 · EMA 20/50 · MACD(12,26,9) · Yahoo Finance · Lot sizes Jun 2026 · Not financial advice")
             st.download_button("⬇ Download CSV", df.to_csv(index=False), "vedhi_screener.csv", "text/csv")
 
+
+st.divider()
+st.markdown("### 📖 Indicator Glossary")
+
+col_a, col_b = st.columns(2)
+
+with col_a:
+    st.markdown("""
+**📌 LTP ₹ — Last Traded Price**
+Current market price of the stock on NSE.
+
+---
+
+**📌 Chg% — Daily Change**
+Percentage change from yesterday's closing price.
+- 🟢 Positive = stock rose today
+- 🔴 Negative = stock fell today
+
+---
+
+**📌 RSI — Relative Strength Index (14-day)**
+Momentum indicator scaled 0–100.
+
+| RSI Range | Zone | Meaning |
+|---|---|---|
+| < 30 | 🔵 Oversold | May bounce — good entry |
+| 30–40 | 🟢 Value zone | Strong swing entry |
+| 40–60 | ⚪ Neutral | No clear signal |
+| 60–70 | 🟡 Elevated | Caution on new buys |
+| > 70 | 🔴 Overbought | May correct — avoid entry |
+
+---
+
+**📌 EMA 20 — 20-day Exponential Moving Average**
+Short-term trend line. Weighted average of last 20 days closing prices giving more weight to recent days.
+- Price above EMA 20 = short-term bullish
+- Price below EMA 20 = short-term bearish
+
+---
+
+**📌 EMA 50 — 50-day Exponential Moving Average**
+Medium-term trend line. Same calculation over 50 days.
+- Price above EMA 50 = medium-term bullish
+- Price below EMA 50 = medium-term bearish
+- **Golden Cross** → EMA 20 crosses above EMA 50 = strong buy signal
+- **Death Cross** → EMA 20 crosses below EMA 50 = sell signal
+    """)
+
+with col_b:
+    st.markdown("""
+**📌 EMA Zone**
+Whether the stock price is currently **between EMA 20 and EMA 50**.
+This is the classic **pullback zone** — best swing entry area.
+- ✅ Yes = price in zone, potential entry
+- ❌ No = price outside zone
+
+---
+
+**📌 Trend**
+Direction based on EMA relationship.
+- **▲ Bull** = EMA 20 above EMA 50 (uptrend)
+- **▼ Bear** = EMA 20 below EMA 50 (downtrend)
+
+---
+
+**📌 MACD (12, 26, 9)**
+Shows momentum direction and strength.
+- **MACD Line** = EMA 12 minus EMA 26
+- Positive = bullish momentum · Negative = bearish
+
+---
+
+**📌 Signal Line**
+9-day EMA of the MACD line.
+- MACD crosses **above** Signal → 🟢 Buy signal
+- MACD crosses **below** Signal → 🔴 Sell signal
+
+---
+
+**📌 Histogram**
+MACD minus Signal line.
+- 🟢 Positive & growing = momentum building
+- 🔴 Negative = bearish momentum
+- Crossing zero from below = bullish crossover
+
+---
+
+**📌 MACD Bias**
+- **Bull** = Histogram positive
+- **Bear** = Histogram negative
+
+---
+
+**📌 Lot**
+NSE F&O lot size — shares in one contract. Verified Jun 2026.
+    """)
+
+st.caption("All indicators: Yahoo Finance daily data · RSI(14) · EMA(20,50) · MACD(12,26,9) · Not financial advice")
+
 st.divider()
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────

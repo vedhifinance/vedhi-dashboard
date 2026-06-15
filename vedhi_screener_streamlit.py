@@ -180,6 +180,28 @@ if run:
         if df.empty:
             st.info("No stocks match the filters.")
         else:
+            # Inject CSS to style AG Grid headers — black bg, white text
+            st.markdown("""
+            <style>
+            .stDataFrame [data-testid="stDataFrameResizable"] th,
+            .stDataFrame thead th,
+            div[data-testid="stDataFrame"] th,
+            .ag-header-cell,
+            .ag-header-cell-text {
+                background-color: #1A1A18 !important;
+                color: white !important;
+                font-weight: 600 !important;
+                font-size: 12px !important;
+            }
+            .ag-header {
+                background-color: #1A1A18 !important;
+            }
+            .ag-header-row {
+                background-color: #1A1A18 !important;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+
             def cr(v):
                 if v<20: return "color:#185FA5;font-weight:600"
                 if v<30: return "color:#1D9E75;font-weight:600"
@@ -198,17 +220,6 @@ if run:
                 .map(ct, subset=["Trend"])\
                 .map(ct, subset=["MACD Bias"])\
                 .map(cz, subset=["EMA Zone"])\
-                .set_table_styles([{
-                    "selector": "thead tr th",
-                    "props": [
-                        ("background-color", "#1A1A18"),
-                        ("color", "white"),
-                        ("font-weight", "600"),
-                        ("font-size", "12px"),
-                        ("letter-spacing", "0.04em"),
-                        ("padding", "10px 12px"),
-                    ]
-                }])\
                 .format({"LTP ₹":"₹{:.2f}","Chg%":"{:+.2f}%","RSI":"{:.1f}",
                          "EMA 20":"₹{:.2f}","EMA 50":"₹{:.2f}",
                          "MACD":"{:.2f}","Signal":"{:.2f}","Histogram":"{:.2f}","Lot":"{:,}"})

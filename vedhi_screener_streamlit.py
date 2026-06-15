@@ -333,7 +333,7 @@ with tab2:
     import math
 
     st.markdown("### 📊 Nifty 50 Swing-Covered Strategy")
-    st.markdown("7-layer confluence filter · Institutional grade · Only high-probability setups")
+    st.markdown("7-layer confluence filter · Institutional grade · RSI 30–50 · Volume 1.2x · 2–4 setups/month")
     st.divider()
 
     # ── Strategy explanation ──────────────────────────────────────────────────
@@ -346,12 +346,17 @@ with tab2:
 | 1 | **Structural trend** | Price > EMA 200 **AND** at least 5% above it | Confirms major uptrend, avoids weak recoveries |
 | 2 | **Weekly trend** | Weekly close > Weekly EMA 20 | Ensures daily bounce is WITH the weekly trend |
 | 3 | **Value zone** | Price between EMA 20 and EMA 50 | Pullback to institutional support — not overbought |
-| 4 | **RSI** | Between 35 and 45 | Oversold enough for value, not so low it is broken |
-| 5 | **Volume** | Today ≥ 1.5x 20-day average | Smart money confirming the move |
+| 4 | **RSI** | Between 30 and 50 | Oversold enough for value, not so low it is broken |
+| 5 | **Volume** | Today ≥ 1.2x 20-day average | Smart money confirming the move |
 | 6 | **Trigger candle** | Hammer / Bullish Engulfing / Strong Green Close | Entry signal — market showing its hand |
 | 7 | **Market breadth** | Nifty 50 above its own EMA 50 | Never fight the broader market |
 
 ### Covered Call Rules
+- **Buy in 2 tranches — Tranche 2 only on dips, never forced**
+  - Tranche 1 (60%) → Always enter on trigger candle signal
+  - Tranche 2 (40%) → Only if price dips near the stop loss zone
+  - ⚡ **If stock shoots up after T1 — sell at target, skip T2 completely**
+- **Sell covered call after your full position is built**
 - **Do not sell the call on entry day** — wait 1–2 days for bounce to begin, premium will be better
 - **Strike selection** — nearest resistance / previous swing high above LTP
 - **Expiry** — monthly expiry with 20–30 days remaining (best premium decay)
@@ -394,9 +399,9 @@ EMA 20 = 20-day average. EMA 50 = 50-day average. The **zone between them** is w
 **📌 Filter 4 — RSI 35 to 45**
 RSI = Relative Strength Index (14-day). Measures how overbought or oversold a stock is on a scale of 0 to 100.
 - RSI **below 35** = stock may be broken or in serious trouble — avoid
-- RSI **35 to 45** = sweet spot — oversold enough to offer value, not so low that something is fundamentally wrong
-- RSI **above 45** = not oversold enough — wait for a better pullback
-- The 35–45 band is specifically chosen to match the EMA zone pullback — when both align, confidence is very high
+- RSI **30 to 50** = sweet spot — oversold enough to offer value, not so low that something is fundamentally wrong
+- RSI **above 50** = not oversold enough — wait for a better pullback
+- The 30–50 band captures a broader pullback range — still selective but gives 2–4 setups per month
             """)
         with g2:
             st.markdown("""
@@ -586,14 +591,14 @@ Risk = entry price minus stop loss. Reward = target minus entry price.
             g   = d.where(d>0,0).rolling(14).mean()
             l_r = (-d.where(d<0,0)).rolling(14).mean()
             rsi = float((100-(100/(1+g/l_r.replace(0,1e-10)))).iloc[-1])
-            if not (35 <= rsi <= 45):
+            if not (30 <= rsi <= 50):
                 return None, f"RSI {rsi:.1f} out of range"
 
             # ── Filter 5: Volume ≥ 1.5x 20-day avg ──────────────────────────
             avg_vol   = float(volume.iloc[-21:-1].mean())
             today_vol = float(volume.iloc[-1])
             vol_ratio = round(today_vol / avg_vol, 2) if avg_vol > 0 else 0
-            if vol_ratio < 1.5:
+            if vol_ratio < 1.2:
                 return None, f"volume {vol_ratio}x insufficient"
 
             # ── Filter 6: Trigger candle ─────────────────────────────────────
@@ -744,12 +749,70 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
                         <div style="font-size:11px;color:#888">Book 50% at T1, rest at T2</div>
                       </div>
                     </div>
+                    """, unsafe_allow_html=True)
+
+                    # 2-tranche buy plan
+                    t1_price  = q['LTP ₹']
+                    t2_price  = round(q['Stop loss'] * 1.01, 2)  # just above stop loss
+                    lot       = q['Lot']
+                    t1_shares = round(lot * 0.60)                 # 60% first
+                    t2_shares = lot - t1_shares                   # 40% second
+                    t1_cost   = round(t1_price * t1_shares, 2)
+                    t2_cost   = round(t2_price * t2_shares, 2)
+                    avg_price = round((t1_cost+t2_cost)/(t1_shares+t2_shares), 2)
+                    total_cost= round(t1_cost+t2_cost, 2)
+
+                    st.markdown(f"""
+                    <div style="background:#FAFAF8;border:0.5px solid #E0DED8;border-radius:10px;
+                                padding:14px 18px;margin:10px 0">
+                      <div style="font-size:11px;font-weight:600;color:#6B6B68;text-transform:uppercase;
+                                  letter-spacing:.05em;margin-bottom:6px">
+                        📦 2-Tranche Buy Plan — 1 Lot ({lot:,} shares)
+                      </div>
+                      <div style="font-size:12px;color:#D98A1A;margin-bottom:12px;font-weight:500">
+                        ⚡ If stock shoots up after Tranche 1 — sell at target, skip Tranche 2 completely.
+                      </div>
+                      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+                        <div style="background:#E6F1FB;border-radius:8px;padding:12px 14px">
+                          <div style="font-size:10px;color:#0C447C;font-weight:600;text-transform:uppercase;margin-bottom:4px">
+                            Tranche 1 · 60%
+                          </div>
+                          <div style="font-size:18px;font-weight:700;color:#185FA5">₹{t1_price:.2f}</div>
+                          <div style="font-size:12px;color:#444;margin-top:3px">{t1_shares:,} shares</div>
+                          <div style="font-size:11px;color:#888;margin-top:2px">₹{t1_cost:,.0f} capital</div>
+                          <div style="font-size:11px;color:#185FA5;margin-top:6px;font-weight:500">
+                            ✅ Always enter on trigger candle
+                          </div>
+                        </div>
+                        <div style="background:#FFF9DB;border-radius:8px;padding:12px 14px">
+                          <div style="font-size:10px;color:#7A5C00;font-weight:600;text-transform:uppercase;margin-bottom:4px">
+                            Tranche 2 · 40%
+                          </div>
+                          <div style="font-size:18px;font-weight:700;color:#D98A1A">₹{t2_price:.2f}</div>
+                          <div style="font-size:12px;color:#444;margin-top:3px">{t2_shares:,} shares</div>
+                          <div style="font-size:11px;color:#888;margin-top:2px">₹{t2_cost:,.0f} capital</div>
+                          <div style="font-size:11px;color:#D98A1A;margin-top:6px;font-weight:500">
+                            ⏳ Only if price dips near stop loss zone
+                          </div>
+                        </div>
+                      </div>
+                      <div style="display:flex;gap:20px;font-size:12px;flex-wrap:wrap;
+                                  padding-top:10px;border-top:0.5px solid #E0DED8">
+                        <span>📊 <strong>Avg cost (both):</strong> ₹{avg_price:.2f}</span>
+                        <span>💰 <strong>Max capital:</strong> ₹{total_cost:,.0f}</span>
+                        <span>🎯 <strong>Target on avg:</strong> ₹{round(avg_price*1.08,2):.2f} (+8%)</span>
+                        <span>🛑 <strong>Stop loss:</strong> ₹{q['Stop loss']:.2f}</span>
+                      </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    st.markdown(f"""
                     <div style="background:#E6F1FB;border:0.5px solid #85B7EB;border-radius:8px;
                                 padding:12px 16px;margin-bottom:20px;font-size:13px">
-                      💡 <strong>Covered call plan:</strong> Buy {q['Lot']:,} shares at ₹{q['LTP ₹']:.2f}
-                      → Wait 1–2 days for bounce → Sell <strong>₹{q['CC Strike']} strike call</strong>
-                      (monthly expiry, 20–30 DTE) to collect premium.
-                      &nbsp;|&nbsp; 52W High: ₹{q['52W High']:.2f}
+                      💡 <strong>Covered call plan:</strong> Sell call only after all 3 tranches are filled
+                      → Use <strong>₹{q['CC Strike']} strike</strong> (monthly expiry, 20–30 DTE)
+                      → Premium collected reduces your average cost further.
+                      &nbsp;|&nbsp; 52W High: ₹{q['52W High']:.2f} &nbsp;|&nbsp; Lot: {lot:,} shares
                     </div>
                     """, unsafe_allow_html=True)
                     st.divider()

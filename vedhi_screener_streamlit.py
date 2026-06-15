@@ -3,10 +3,58 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
-st.set_page_config(page_title="Vedhi Trading Dashboard", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Vedhi Pulse", layout="wide", page_icon="📈")
 
 st.markdown("""
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;1,400;1,600&family=Inter:wght@300;400;500;600&display=swap');
+
+html, body, [class*="css"], p, span, div {
+    font-family: 'Inter', sans-serif !important;
+}
+.vedhi-brand {
+    font-family: 'Playfair Display', Georgia, serif !important;
+    font-style: italic;
+    font-weight: 700;
+    font-size: 46px;
+    color: #1A1A18;
+    letter-spacing: -1.5px;
+    line-height: 1.1;
+}
+.vedhi-brand .pulse {
+    color: #1D9E75;
+}
+.vedhi-sub {
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 400;
+    color: #999;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-top: 6px;
+}
+.live-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: #EAF3DE;
+    color: #27500A;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 20px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-top: 8px;
+}
+.live-dot-c {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #1D9E75;
+    display: inline-block;
+    animation: blink 1.5s infinite;
+}
+@keyframes blink {0%,100%{opacity:1}50%{opacity:.2}}
 .metric-card{background:#F7F7F5;border-radius:10px;padding:14px 18px;margin-bottom:8px}
 .green{color:#1D9E75;font-weight:600}
 .red{color:#E24B4A;font-weight:600}
@@ -16,8 +64,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── Header ─────────────────────────────────────────────────────────────────
-st.markdown("## 📈 Vedhi Trading Dashboard")
-st.markdown("**Nifty 50 Strategy Hub** | NSE India | Live Data via Yahoo Finance")
+st.markdown("""
+<div style="padding:8px 0 20px">
+  <div class="vedhi-brand">Vedhi <span class="pulse">Pulse</span></div>
+  <div class="vedhi-sub">Nifty 50 Intelligence &nbsp;&middot;&nbsp; NSE India &nbsp;&middot;&nbsp; Live Market Data</div>
+  <div class="live-badge"><span class="live-dot-c"></span>&nbsp;Live</div>
+</div>
+""", unsafe_allow_html=True)
 
 # ── Nifty 50 Index Live Indicators ──────────────────────────────────────────
 @st.cache_data(ttl=300)

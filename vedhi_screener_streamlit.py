@@ -198,6 +198,17 @@ if run:
                 .map(ct, subset=["Trend"])\
                 .map(ct, subset=["MACD Bias"])\
                 .map(cz, subset=["EMA Zone"])\
+                .set_table_styles([{
+                    "selector": "thead tr th",
+                    "props": [
+                        ("background-color", "#1A1A18"),
+                        ("color", "white"),
+                        ("font-weight", "600"),
+                        ("font-size", "12px"),
+                        ("letter-spacing", "0.04em"),
+                        ("padding", "10px 12px"),
+                    ]
+                }])\
                 .format({"LTP ₹":"₹{:.2f}","Chg%":"{:+.2f}%","RSI":"{:.1f}",
                          "EMA 20":"₹{:.2f}","EMA 50":"₹{:.2f}",
                          "MACD":"{:.2f}","Signal":"{:.2f}","Histogram":"{:.2f}","Lot":"{:,}"})

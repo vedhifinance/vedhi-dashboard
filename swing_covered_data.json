@@ -1,3 +1,19 @@
 {
-  "positions": []
+  "positions": [
+    {
+      "id": 1,
+      "symbol": "NTPC",
+      "sector": "PSU Power",
+      "lot_size": 1500,
+      "buys": [
+        {
+          "shares": 589,
+          "price": 353.11,
+          "date": "2026-06-12",
+          "notes": ""
+        }
+      ],
+      "cc_cycles": []
+    }
+  ]
 }

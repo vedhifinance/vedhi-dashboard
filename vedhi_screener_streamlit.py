@@ -33,28 +33,48 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── Nifty 50 Live Indicators (once) ──────────────────────────────────────────
+
+def calc_rsi_proper(close, period=14):
+    """Wilder's RSI — correct implementation used everywhere"""
+    close = close.dropna()
+    # Remove duplicate index entries
+    close = close[~close.index.duplicated(keep='last')]
+    close = close.sort_index()
+    delta = close.diff().dropna()
+    gain  = delta.clip(lower=0)
+    loss  = (-delta).clip(lower=0)
+    # Wilder's smoothing (EMA with alpha = 1/period)
+    avg_gain = gain.ewm(alpha=1/period, adjust=False, min_periods=period).mean()
+    avg_loss = loss.ewm(alpha=1/period, adjust=False, min_periods=period).mean()
+    rs  = avg_gain / avg_loss.replace(0, 1e-10)
+    rsi = 100 - (100 / (1 + rs))
+    val = float(rsi.iloc[-1])
+    # Sanity check — RSI must be 1 to 99
+    if val < 1 or val > 99:
+        return None
+    return round(val, 1)
+
 @st.cache_data(ttl=300)
 def fetch_nifty():
     try:
         df = yf.download("^NSEI", period="1y", interval="1d", progress=False, auto_adjust=True)
         if df.empty or len(df) < 55: return None
-        c = df["Close"].squeeze() if hasattr(df["Close"], "squeeze") else df["Close"] if hasattr(df["Close"], "squeeze") else df["Close"]
+        c = df["Close"].squeeze().dropna()
+        c = c[~c.index.duplicated(keep='last')].sort_index()
         ema20 = c.ewm(span=20, adjust=False).mean().iloc[-1]
         ema50 = c.ewm(span=50, adjust=False).mean().iloc[-1]
-        d = c.diff()
-        g = d.where(d>0,0).rolling(14).mean()
-        l = (-d.where(d<0,0)).rolling(14).mean()
-        rsi = (100-(100/(1+g/l.replace(0,1e-10)))).iloc[-1]
-        e12 = c.ewm(span=12, adjust=False).mean()
-        e26 = c.ewm(span=26, adjust=False).mean()
-        macd = e12 - e26
-        sig  = macd.ewm(span=9, adjust=False).mean()
-        hist = macd - sig
-        ltp  = float(c.iloc[-1])
-        prev = float(c.iloc[-2])
+        rsi   = calc_rsi_proper(c)
+        if rsi is None: return None
+        e12   = c.ewm(span=12, adjust=False).mean()
+        e26   = c.ewm(span=26, adjust=False).mean()
+        macd  = e12 - e26
+        sig   = macd.ewm(span=9, adjust=False).mean()
+        hist  = macd - sig
+        ltp   = float(c.iloc[-1])
+        prev  = float(c.iloc[-2])
         return {
             "ltp": ltp, "chg": ltp-prev, "chgp": (ltp-prev)/prev*100,
-            "rsi": round(float(rsi),1), "ema20": round(float(ema20),1),
+            "rsi": rsi, "ema20": round(float(ema20),1),
             "ema50": round(float(ema50),1), "macd": round(float(macd.iloc[-1]),2),
             "signal": round(float(sig.iloc[-1]),2), "hist": round(float(hist.iloc[-1]),2),
         }
@@ -119,8 +139,9 @@ def fetch_stock(symbol):
         c = df["Close"].squeeze() if hasattr(df["Close"], "squeeze") else df["Close"] if hasattr(df["Close"], "squeeze") else df["Close"]
         ema20 = c.ewm(span=20,adjust=False).mean().iloc[-1]
         ema50 = c.ewm(span=50,adjust=False).mean().iloc[-1]
-        d=c.diff(); g=d.where(d>0,0).rolling(14).mean(); l=(-d.where(d<0,0)).rolling(14).mean()
-        rsi=(100-(100/(1+g/l.replace(0,1e-10)))).iloc[-1]
+        rsi_val = calc_rsi_proper(c)
+        if rsi_val is None: return None
+        rsi = rsi_val
         e12=c.ewm(span=12,adjust=False).mean(); e26=c.ewm(span=26,adjust=False).mean()
         macd=e12-e26; sig=macd.ewm(span=9,adjust=False).mean(); hist=macd-sig
         ltp=float(c.iloc[-1]); prev=float(c.iloc[-2])
@@ -649,11 +670,10 @@ Risk = entry price minus stop loss. Reward = target minus entry price.
             if ema_gap_pct < 1.0:
                 return None, "EMA gap too narrow"
 
-            # ── Filter 4: RSI 35–45 ──────────────────────────────────────────
-            d   = close.diff()
-            g   = d.where(d>0,0).rolling(14).mean()
-            l_r = (-d.where(d<0,0)).rolling(14).mean()
-            rsi = float((100-(100/(1+g/l_r.replace(0,1e-10)))).iloc[-1])
+            # ── Filter 4: RSI 30–50 ──────────────────────────────────────────
+            rsi_val = calc_rsi_proper(close)
+            if rsi_val is None: return None, "RSI calculation failed"
+            rsi = rsi_val
             if not (30 <= rsi <= 50):
                 return None, f"RSI {rsi:.1f} out of range"
 

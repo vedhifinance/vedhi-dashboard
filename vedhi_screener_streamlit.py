@@ -926,6 +926,250 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
                                df_q.to_csv(index=False),
                                "swing_covered_setups.csv","text/csv")
 
+    # ══════════════════════════════════════════════════════════════════════════
+    # POSITION TRACKER — Swing-Covered Portfolio
+    # ══════════════════════════════════════════════════════════════════════════
+    import json, base64, requests as req2
+
+    st.divider()
+    st.markdown("## 📁 Swing-Covered Position Tracker")
+    st.markdown("Track your partial buys, build to full lot, monitor P&L and covered call income.")
+
+    SC_FILE = "swing_covered_data.json"
+
+    # ── GitHub helpers (reuse secrets) ────────────────────────────────────────
+    def sc_headers():
+        return {"Authorization": f"token {st.secrets.get('GITHUB_TOKEN','')}",
+                "Accept": "application/vnd.github.v3+json"}
+
+    def sc_load():
+        try:
+            url = f"https://api.github.com/repos/{st.secrets.get('GITHUB_REPO','')}/contents/{SC_FILE}"
+            r = req2.get(url, headers=sc_headers(), timeout=10)
+            if r.status_code == 200:
+                j    = r.json()
+                data = json.loads(base64.b64decode(j["content"]).decode())
+                data["_sha"] = j["sha"]
+                return data
+            return {"positions": [], "_sha": None}
+        except:
+            return {"positions": [], "_sha": None}
+
+    def sc_save(data):
+        try:
+            sha     = data.pop("_sha", None)
+            encoded = base64.b64encode(json.dumps(data, indent=2).encode()).decode()
+            url     = f"https://api.github.com/repos/{st.secrets.get('GITHUB_REPO','')}/contents/{SC_FILE}"
+            payload = {"message": "Update swing-covered positions", "content": encoded}
+            if sha: payload["sha"] = sha
+            r = req2.put(url, headers=sc_headers(), json=payload, timeout=10)
+            if r.status_code in [200,201]:
+                data["_sha"] = r.json()["content"]["sha"]
+                return True
+            st.error(f"Save failed: {r.status_code}")
+            return False
+        except Exception as e:
+            st.error(f"Save error: {e}")
+            return False
+
+    @st.cache_data(ttl=300)
+    def get_live_price(sym):
+        try:
+            df = yf.download(f"{sym}.NS", period="5d", interval="1d",
+                             progress=False, auto_adjust=True)
+            if df.empty: return None
+            c    = df["Close"].squeeze().dropna()
+            ltp  = float(c.iloc[-1])
+            prev = float(c.iloc[-2])
+            return {"ltp": ltp, "chg": ltp-prev, "chgp": (ltp-prev)/prev*100}
+        except: return None
+
+    # ── Load data ─────────────────────────────────────────────────────────────
+    if "sc_data" not in st.session_state or st.session_state.get("sc_reload", True):
+        st.session_state["sc_data"]   = sc_load()
+        st.session_state["sc_reload"] = False
+
+    sc_db     = st.session_state["sc_data"]
+    positions = sc_db.get("positions", [])
+
+    # ── Portfolio summary ─────────────────────────────────────────────────────
+    if positions:
+        total_invested = 0
+        total_current  = 0
+        total_premium  = 0
+        for pos in positions:
+            buys = pos.get("buys", [])
+            total_shares = sum(b["shares"] for b in buys)
+            avg_cost     = sum(b["shares"]*b["price"] for b in buys)/total_shares if total_shares else 0
+            live         = get_live_price(pos["symbol"])
+            ltp          = live["ltp"] if live else avg_cost
+            invested     = round(avg_cost * total_shares, 2)
+            current      = round(ltp * total_shares, 2)
+            prem         = sum(c.get("premium_income",0) for c in pos.get("cc_cycles",[]))
+            total_invested += invested
+            total_current  += current
+            total_premium  += prem
+
+        total_stock_pnl  = round(total_current - total_invested, 2)
+        total_combined   = round(total_stock_pnl + total_premium, 2)
+
+        pm1,pm2,pm3,pm4 = st.columns(4)
+        pm1.metric("Total invested",  f"₹{total_invested:,.0f}", f"{len(positions)} positions")
+        pm2.metric("Stock P&L",       f"₹{total_stock_pnl:+,.0f}", f"{total_stock_pnl/total_invested*100:+.1f}%" if total_invested else "—")
+        pm3.metric("Premium earned",  f"₹{total_premium:,.0f}", "all cycles")
+        pm4.metric("Combined P&L",    f"₹{total_combined:+,.0f}", f"{total_combined/total_invested*100:+.1f}%" if total_invested else "—")
+        st.divider()
+
+    # ── Add new position ──────────────────────────────────────────────────────
+    st.markdown("#### ➕ Add / Update position")
+    symbols_list = list(NIFTY50.keys())
+
+    with st.form("sc_add_position", clear_on_submit=True):
+        ap1,ap2,ap3,ap4 = st.columns(4)
+        with ap1: ap_sym    = st.selectbox("Stock", symbols_list)
+        with ap2: ap_shares = st.number_input("Shares bought", min_value=1, step=1, value=100)
+        with ap3: ap_price  = st.number_input("Buy price (₹)", min_value=0.01, step=0.05, format="%.2f")
+        with ap4: ap_date   = st.date_input("Buy date")
+        ap_notes = st.text_input("Notes (optional)", placeholder="e.g. Tranche 1 entry")
+        ap_submit = st.form_submit_button("💾 Save buy", type="primary", use_container_width=True)
+
+        if ap_submit and ap_price > 0 and ap_shares > 0:
+            # Find existing position for this stock or create new
+            existing = next((p for p in positions if p["symbol"]==ap_sym), None)
+            new_buy  = {"shares":int(ap_shares), "price":float(ap_price),
+                        "date":str(ap_date), "notes":ap_notes}
+            if existing:
+                existing["buys"].append(new_buy)
+            else:
+                lot_size = NIFTY50[ap_sym]["lot"]
+                positions.append({
+                    "id":        len(positions)+1,
+                    "symbol":    ap_sym,
+                    "sector":    NIFTY50[ap_sym]["sector"],
+                    "lot_size":  lot_size,
+                    "buys":      [new_buy],
+                    "cc_cycles": [],
+                })
+            sc_db["positions"] = positions
+            if sc_save(sc_db):
+                st.success(f"✓ {int(ap_shares)} shares of {ap_sym} @ ₹{ap_price:.2f} saved!")
+                st.session_state["sc_reload"] = True
+                st.rerun()
+
+    # ── Position cards ────────────────────────────────────────────────────────
+    if not positions:
+        st.info("No positions yet. Add your first buy above.")
+    else:
+        st.divider()
+        st.markdown("#### 📊 Current positions")
+
+        for pos in positions:
+            sym      = pos["symbol"]
+            sector   = pos["sector"]
+            lot_size = pos["lot_size"]
+            buys     = pos.get("buys", [])
+            cc_cycles= pos.get("cc_cycles", [])
+
+            total_shares = sum(b["shares"] for b in buys)
+            avg_cost     = sum(b["shares"]*b["price"] for b in buys)/total_shares if total_shares else 0
+            invested     = round(avg_cost * total_shares, 2)
+            pct_to_lot   = min(100, round(total_shares/lot_size*100, 1))
+            remaining    = max(0, lot_size - total_shares)
+            total_prem   = sum(c.get("premium_income",0) for c in cc_cycles)
+
+            live  = get_live_price(sym)
+            ltp   = live["ltp"] if live else avg_cost
+            ltp_ok= live is not None
+            current     = round(ltp * total_shares, 2)
+            stock_pnl   = round(current - invested, 2)
+            combined    = round(stock_pnl + total_prem, 2)
+            pnl_pct     = round(stock_pnl/invested*100, 2) if invested else 0
+            chg_txt     = f"{live['chg']:+.2f} ({live['chgp']:+.2f}%)" if ltp_ok else "—"
+
+            sc_col = "#1D9E75" if stock_pnl>=0 else "#E24B4A"
+
+            st.markdown(f"""
+            <div style="background:#F2FBF6;border:1.5px solid #1D9E75;border-radius:12px;
+                        padding:16px 20px;margin-bottom:8px">
+              <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+                <div>
+                  <span style="background:#1A1A18;color:white;font-weight:700;font-size:16px;
+                               padding:4px 14px;border-radius:6px">{sym}</span>
+                  <span style="background:#EFEFEC;color:#555;font-size:11px;font-weight:500;
+                               padding:3px 10px;border-radius:10px;margin-left:8px">{sector}</span>
+                </div>
+                <div style="text-align:right">
+                  <div style="font-size:22px;font-weight:700">₹{ltp:.2f}</div>
+                  <div style="font-size:12px;color:{'#1D9E75' if ltp_ok and live['chg']>=0 else '#E24B4A'}">{chg_txt}</div>
+                </div>
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Metrics row
+            mc1,mc2,mc3,mc4,mc5,mc6 = st.columns(6)
+            mc1.metric("Shares held",    f"{total_shares:,}",    f"of {lot_size:,} (1 lot)")
+            mc2.metric("Avg cost",       f"₹{avg_cost:.2f}")
+            mc3.metric("Invested",       f"₹{invested:,.0f}")
+            mc4.metric("Stock P&L",      f"₹{stock_pnl:+,.0f}",  f"{pnl_pct:+.1f}%")
+            mc5.metric("Premium earned", f"₹{total_prem:,.0f}",  f"{len(cc_cycles)} cycles")
+            mc6.metric("Combined P&L",   f"₹{combined:+,.0f}")
+
+            # Progress to full lot
+            st.markdown(f"""
+            <div style="margin:10px 0 4px;display:flex;justify-content:space-between;font-size:12px;color:#6B6B68">
+              <span>Progress to 1 lot ({lot_size:,} shares)</span>
+              <span>{total_shares:,} / {lot_size:,} shares &nbsp;·&nbsp; {remaining:,} remaining</span>
+            </div>
+            <div style="height:8px;background:#EFEFEC;border-radius:4px;overflow:hidden;margin-bottom:4px">
+              <div style="height:8px;background:{'#1D9E75' if pct_to_lot==100 else '#185FA5'};
+                          border-radius:4px;width:{pct_to_lot}%"></div>
+            </div>
+            <div style="font-size:11px;color:#888;margin-bottom:10px">
+              {'✅ Full lot complete — ready to sell covered call!' if pct_to_lot==100 else f'{pct_to_lot}% of lot filled'}
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Buy history
+            with st.expander(f"📋 {sym} — buy history ({len(buys)} entries)"):
+                bh_rows = [{"Date":b["date"],"Shares":b["shares"],
+                            "Price ₹":f"₹{b['price']:.2f}",
+                            "Value ₹":f"₹{b['shares']*b['price']:,.0f}",
+                            "Notes":b.get("notes","—")} for b in buys]
+                st.dataframe(pd.DataFrame(bh_rows), use_container_width=True, hide_index=True)
+
+            # Log covered call cycle
+            with st.expander(f"💰 {sym} — log a covered call cycle"):
+                with st.form(f"cc_form_{sym}", clear_on_submit=True):
+                    cc1,cc2,cc3,cc4 = st.columns(4)
+                    with cc1: cc_strike  = st.number_input("Strike (₹)", min_value=0.0, step=0.5, format="%.2f", key=f"ccs_{sym}")
+                    with cc2: cc_prem    = st.number_input("Premium/share (₹)", min_value=0.0, step=0.05, format="%.2f", key=f"ccp_{sym}")
+                    with cc3: cc_expiry  = st.date_input("Expiry date", key=f"cce_{sym}")
+                    with cc4: cc_outcome = st.selectbox("Outcome", ["Option expired","Called away"], key=f"cco_{sym}")
+                    cc_submit = st.form_submit_button("💾 Save cycle", type="primary")
+                    if cc_submit and cc_prem > 0:
+                        prem_income = round(cc_prem * total_shares, 2)
+                        pos["cc_cycles"].append({
+                            "strike":cc_strike, "premium":float(cc_prem),
+                            "expiry":str(cc_expiry), "outcome":cc_outcome,
+                            "shares":total_shares, "premium_income":prem_income
+                        })
+                        sc_db["positions"] = positions
+                        if sc_save(sc_db):
+                            st.success(f"✓ Cycle saved! Income: ₹{prem_income:,.2f}")
+                            st.session_state["sc_reload"] = True
+                            st.rerun()
+
+            # Delete position
+            if st.button(f"🗑️ Remove {sym} position", key=f"del_{sym}"):
+                sc_db["positions"] = [p for p in positions if p["symbol"]!=sym]
+                if sc_save(sc_db):
+                    st.success(f"{sym} position removed.")
+                    st.session_state["sc_reload"] = True
+                    st.rerun()
+
+            st.divider()
+
 
 with tab3:
     import json, base64

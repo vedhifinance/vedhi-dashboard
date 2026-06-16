@@ -283,9 +283,7 @@ if run:
         else:
             # Remove injected CSS — not needed with HTML table
             # Build HTML table with black headers, white text
-            cols = ["Stock","Sector","LTP ₹","Chg%","RSI","EMA 20","EMA 50",
-                    "MACD","Signal Line","Histogram","EMA Zone","Trend","MACD Bias",
-                    "Vol Ratio","Vol Trend","Signal","Lot"]
+            cols = ["Stock","Sector","LTP ₹","Chg%","RSI","EMA Zone","Trend","Vol Trend","Signal","Lot"]
 
             def cell_style(col, val, row=None):
                 if col == "Stock":

@@ -25,7 +25,7 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
 
 # ── Header (once) ─────────────────────────────────────────────────────────────
 st.markdown("""
-<div style="padding:8px 0 20px">
+<div style="padding:4px 0 12px">
   <div class="brand">Vedhi <span class="pulse">Pulse</span></div>
   <div class="sub">Nifty 50 Intelligence &nbsp;·&nbsp; NSE India &nbsp;·&nbsp; Live Market Data</div>
   <div class="live-badge"><span class="dot"></span>&nbsp;Live</div>
@@ -82,21 +82,75 @@ def fetch_nifty():
 
 nifty = fetch_nifty()
 if nifty:
-    c1,c2,c3,c4,c5,c6 = st.columns(6)
-    arrow = "▲" if nifty["chg"] >= 0 else "▼"
-    c1.metric("Nifty 50", f"{nifty['ltp']:,.2f}",
-              f"{arrow} {abs(nifty['chg']):.2f} ({abs(nifty['chgp']):.2f}%)")
-    rsi_lbl = "Oversold" if nifty["rsi"]<30 else "Value zone" if nifty["rsi"]<40 else \
-              "Neutral" if nifty["rsi"]<60 else "Elevated" if nifty["rsi"]<70 else "Overbought"
-    c2.metric("RSI (14)", nifty["rsi"], rsi_lbl)
-    c3.metric("EMA 20", f"{nifty['ema20']:,.1f}",
-              "Above" if nifty["ltp"]>nifty["ema20"] else "Below")
-    c4.metric("EMA 50", f"{nifty['ema50']:,.1f}",
-              "Above" if nifty["ltp"]>nifty["ema50"] else "Below")
-    c5.metric("MACD", f"{nifty['macd']:+.2f}", f"Signal {nifty['signal']:+.2f}")
-    c6.metric("Histogram", f"{nifty['hist']:+.2f}",
-              "Bullish" if nifty["hist"]>=0 else "Bearish")
-    st.caption(f"Auto-refreshes every 5 min · Yahoo Finance · {pd.Timestamp.now().strftime('%d %b %Y %H:%M')} IST")
+    arrow    = "▲" if nifty["chg"] >= 0 else "▼"
+    chg_col  = "#1D9E75" if nifty["chg"] >= 0 else "#E24B4A"
+    rsi_col  = "#185FA5" if nifty["rsi"]<30 else "#1D9E75" if nifty["rsi"]<40 else \
+               "#D98A1A" if nifty["rsi"]<70 else "#E24B4A"
+    rsi_lbl  = "Oversold" if nifty["rsi"]<30 else "Value" if nifty["rsi"]<40 else \
+               "Neutral" if nifty["rsi"]<60 else "Elevated" if nifty["rsi"]<70 else "Overbought"
+    hist_col = "#1D9E75" if nifty["hist"]>=0 else "#E24B4A"
+    e20_col  = "#1D9E75" if nifty["ltp"]>nifty["ema20"] else "#E24B4A"
+    e50_col  = "#1D9E75" if nifty["ltp"]>nifty["ema50"] else "#E24B4A"
+
+    st.markdown(f"""
+    <div style="background:#fff;border:0.5px solid #E0DED8;border-radius:8px;
+                padding:10px 16px;display:flex;align-items:center;
+                gap:0;flex-wrap:wrap;margin-bottom:4px">
+
+      <div style="padding:0 16px 0 0;margin-right:16px;border-right:0.5px solid #E0DED8">
+        <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.05em">Nifty 50</div>
+        <div style="display:flex;align-items:baseline;gap:6px;margin-top:1px">
+          <span style="font-size:16px;font-weight:600;color:#1A1A18">{nifty['ltp']:,.2f}</span>
+          <span style="font-size:11px;font-weight:500;color:{chg_col}">{arrow} {abs(nifty['chg']):.0f} ({abs(nifty['chgp']):.1f}%)</span>
+        </div>
+      </div>
+
+      <div style="padding:0 16px;border-right:0.5px solid #E0DED8">
+        <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.05em">RSI 14</div>
+        <div style="margin-top:1px">
+          <span style="font-size:14px;font-weight:600;color:{rsi_col}">{nifty['rsi']}</span>
+          <span style="font-size:10px;color:{rsi_col};margin-left:4px">{rsi_lbl}</span>
+        </div>
+      </div>
+
+      <div style="padding:0 16px;border-right:0.5px solid #E0DED8">
+        <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.05em">EMA 20</div>
+        <div style="margin-top:1px">
+          <span style="font-size:14px;font-weight:500;color:#1A1A18">{nifty['ema20']:,.0f}</span>
+          <span style="font-size:10px;color:{e20_col};margin-left:4px">{'↑ Above' if nifty['ltp']>nifty['ema20'] else '↓ Below'}</span>
+        </div>
+      </div>
+
+      <div style="padding:0 16px;border-right:0.5px solid #E0DED8">
+        <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.05em">EMA 50</div>
+        <div style="margin-top:1px">
+          <span style="font-size:14px;font-weight:500;color:#1A1A18">{nifty['ema50']:,.0f}</span>
+          <span style="font-size:10px;color:{e50_col};margin-left:4px">{'↑ Above' if nifty['ltp']>nifty['ema50'] else '↓ Below'}</span>
+        </div>
+      </div>
+
+      <div style="padding:0 16px;border-right:0.5px solid #E0DED8">
+        <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.05em">MACD</div>
+        <div style="margin-top:1px">
+          <span style="font-size:14px;font-weight:500;color:#1A1A18">{nifty['macd']:+.1f}</span>
+          <span style="font-size:10px;color:#888;margin-left:4px">Sig {nifty['signal']:+.1f}</span>
+        </div>
+      </div>
+
+      <div style="padding:0 0 0 16px">
+        <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.05em">Histogram</div>
+        <div style="margin-top:1px">
+          <span style="font-size:14px;font-weight:500;color:{hist_col}">{nifty['hist']:+.1f}</span>
+          <span style="font-size:10px;color:{hist_col};margin-left:4px">{'Bullish' if nifty['hist']>=0 else 'Bearish'}</span>
+        </div>
+      </div>
+
+      <div style="margin-left:auto;font-size:10px;color:#bbb;padding-left:16px">
+        {pd.Timestamp.now().strftime('%d %b %Y %H:%M')} IST
+      </div>
+
+    </div>
+    """, unsafe_allow_html=True)
 else:
     st.warning("Could not fetch Nifty 50 data — please refresh.")
 
@@ -1242,6 +1296,8 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
             pd.DataFrame(rows).to_csv(index=False),
             "vedhi_monthly_pnl.csv", "text/csv"
         )
+
+with tab3:
     import json, base64
     import requests
 

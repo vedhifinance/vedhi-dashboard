@@ -437,8 +437,320 @@ tab1, tab2, tab3 = st.tabs([
 ])
 
 with tab1:
-    st.markdown("### Nifty 50 Swing Strategy")
-    st.info("Use the **▶ Run screener** above to scan all 50 Nifty stocks.")
+    import json, base64
+    import requests as req1
+    from datetime import date
+
+    st.markdown("### 📈 Nifty 50 Swing Strategy")
+    st.caption("Track your swing trades — open holdings, sell records, P&L history")
+    st.divider()
+
+    SW_FILE = "swing_data.json"
+
+    # ── GitHub helpers ────────────────────────────────────────────────────────
+    def sw_headers():
+        return {"Authorization": f"token {st.secrets.get('GITHUB_TOKEN','')}",
+                "Accept": "application/vnd.github.v3+json"}
+
+    def sw_load():
+        try:
+            url = f"https://api.github.com/repos/{st.secrets.get('GITHUB_REPO','')}/contents/{SW_FILE}"
+            r = req1.get(url, headers=sw_headers(), timeout=10)
+            if r.status_code == 200:
+                j    = r.json()
+                data = json.loads(base64.b64decode(j["content"]).decode())
+                data["_sha"] = j["sha"]
+                return data
+            return {"holdings": [], "sold": [], "_sha": None}
+        except:
+            return {"holdings": [], "sold": [], "_sha": None}
+
+    def sw_save(data):
+        try:
+            sha     = data.pop("_sha", None)
+            encoded = base64.b64encode(json.dumps(data, indent=2).encode()).decode()
+            url     = f"https://api.github.com/repos/{st.secrets.get('GITHUB_REPO','')}/contents/{SW_FILE}"
+            payload = {"message": "Update swing holdings", "content": encoded}
+            if sha: payload["sha"] = sha
+            r = req1.put(url, headers=sw_headers(), json=payload, timeout=10)
+            if r.status_code in [200, 201]:
+                data["_sha"] = r.json()["content"]["sha"]
+                return True
+            st.error(f"Save failed: {r.status_code}")
+            return False
+        except Exception as e:
+            st.error(f"Save error: {e}")
+            return False
+
+    @st.cache_data(ttl=300)
+    def get_sw_price(sym):
+        try:
+            df = yf.download(f"{sym}.NS", period="5d", interval="1d",
+                             progress=False, auto_adjust=True)
+            if df.empty: return None
+            c = df["Close"].squeeze().dropna()
+            return round(float(c.iloc[-1]), 2)
+        except: return None
+
+    # ── Load data ─────────────────────────────────────────────────────────────
+    if "sw_data" not in st.session_state or st.session_state.get("sw_reload", True):
+        st.session_state["sw_data"]   = sw_load()
+        st.session_state["sw_reload"] = False
+
+    sw_db    = st.session_state["sw_data"]
+    holdings = sw_db.get("holdings", [])
+    sold     = sw_db.get("sold", [])
+
+    # ── Sub tabs ──────────────────────────────────────────────────────────────
+    sw1, sw2, sw3 = st.tabs(["📂 Open Holdings", "💸 Sell a Stock", "📋 Sold History"])
+
+    # ════════════════════════════════════════════════════════════════
+    # SUB TAB 1 — Open Holdings
+    # ════════════════════════════════════════════════════════════════
+    with sw1:
+
+        # Add holding form
+        st.markdown("**➕ Add holding**")
+        with st.form("sw_add_form", clear_on_submit=True):
+            a1,a2,a3,a4 = st.columns(4)
+            with a1: sw_sym   = st.selectbox("Stock", list(NIFTY50.keys()), key="sw_sym")
+            with a2: sw_qty   = st.number_input("Quantity", min_value=1, step=1, key="sw_qty")
+            with a3: sw_price = st.number_input("Buy price (₹)", min_value=0.01,
+                                                 step=0.05, format="%.2f", key="sw_bp")
+            with a4: sw_date  = st.date_input("Buy date", key="sw_date")
+            sw_notes = st.text_input("Notes (optional)", key="sw_notes")
+            sw_submit = st.form_submit_button("Add holding", type="primary",
+                                               use_container_width=True)
+            if sw_submit and sw_qty > 0 and sw_price > 0:
+                # Check if already holding this stock — merge
+                existing = next((h for h in holdings if h["symbol"]==sw_sym), None)
+                new_buy  = {"qty": int(sw_qty), "price": float(sw_price),
+                            "date": str(sw_date), "notes": sw_notes}
+                if existing:
+                    existing["buys"].append(new_buy)
+                else:
+                    holdings.append({
+                        "id":     len(holdings)+1,
+                        "symbol": sw_sym,
+                        "sector": NIFTY50[sw_sym]["sector"],
+                        "buys":   [new_buy],
+                    })
+                sw_db["holdings"] = holdings
+                if sw_save(sw_db):
+                    st.success(f"✓ {int(sw_qty)} shares of {sw_sym} @ ₹{sw_price:.2f} added!")
+                    st.session_state["sw_reload"] = True
+                    st.rerun()
+
+        st.divider()
+
+        # ── Current open holdings table ───────────────────────────────────────
+        if not holdings:
+            st.info("No open holdings yet. Add your first trade above.")
+        else:
+            st.markdown("**📂 Current open holdings**")
+
+            rows = []
+            for h in holdings:
+                sym   = h["symbol"]
+                buys  = h["buys"]
+                total_qty  = sum(b["qty"] for b in buys)
+                avg_cost   = sum(b["qty"]*b["price"] for b in buys) / total_qty
+                first_date = min(b["date"] for b in buys)
+                hold_days  = (date.today() - date.fromisoformat(first_date)).days
+                live       = get_sw_price(sym)
+                ltp        = live if live else avg_cost
+                invested   = round(avg_cost * total_qty, 2)
+                curr_val   = round(ltp * total_qty, 2)
+                unreal_pnl = round(curr_val - invested, 2)
+                pnl_pct    = round(unreal_pnl / invested * 100, 2) if invested else 0
+
+                rows.append({
+                    "symbol":    sym,
+                    "Ticker":    sym,
+                    "Buy Date":  first_date,
+                    "Days":      hold_days,
+                    "Qty":       total_qty,
+                    "Avg ₹":    round(avg_cost, 2),
+                    "Live ₹":   ltp if live else "—",
+                    "Invested ₹": f"₹{invested:,.0f}",
+                    "Curr Value ₹": f"₹{curr_val:,.0f}" if live else "—",
+                    "Unreal P&L": f"₹{unreal_pnl:+,.0f}" if live else "—",
+                    "P&L %":     f"{pnl_pct:+.1f}%" if live else "—",
+                })
+
+            # Build HTML table
+            cols_show = ["Ticker","Buy Date","Days","Qty","Avg ₹","Live ₹",
+                         "Invested ₹","Curr Value ₹","Unreal P&L","P&L %"]
+
+            header = "".join(
+                f'<th style="background:#1A1A18;color:white;font-size:11px;font-weight:600;'
+                f'padding:9px 12px;text-align:left;white-space:nowrap;'
+                f'border-right:0.5px solid #444">{c}</th>' for c in cols_show
+            )
+
+            body = ""
+            for i, r in enumerate(rows):
+                bg = "#fff" if i%2==0 else "#FAFAF8"
+                unreal_raw = r["Unreal P&L"]
+                pnl_raw    = r["P&L %"]
+                row_html   = f'<tr style="background:{bg}">'
+                for c in cols_show:
+                    val   = r[c]
+                    style = "padding:9px 12px;font-size:13px;border-right:0.5px solid #E0DED8;border-bottom:0.5px solid #E0DED8;white-space:nowrap;"
+                    if c == "Ticker":
+                        style += "background:#1A1A18;color:white;font-weight:600;"
+                    elif c == "Unreal P&L":
+                        color = "#1D9E75" if "+" in str(val) else "#E24B4A"
+                        style += f"color:{color};font-weight:600;"
+                    elif c == "P&L %":
+                        color = "#1D9E75" if "+" in str(val) else "#E24B4A"
+                        style += f"color:{color};font-weight:600;"
+                    row_html += f'<td style="{style}">{val}</td>'
+                row_html += "</tr>"
+                body += row_html
+
+            st.markdown(f"""
+            <div style="overflow-x:auto;border:0.5px solid #E0DED8;border-radius:8px;overflow:hidden">
+              <table style="width:100%;border-collapse:collapse;font-family:system-ui,sans-serif">
+                <thead><tr>{header}</tr></thead>
+                <tbody>{body}</tbody>
+              </table>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Portfolio summary
+            st.markdown("")
+            total_inv  = sum(sum(b["qty"]*b["price"] for b in h["buys"]) for h in holdings)
+            total_curr = sum((get_sw_price(h["symbol"]) or 0) *
+                             sum(b["qty"] for b in h["buys"]) for h in holdings)
+            total_pnl  = round(total_curr - total_inv, 2)
+            total_pct  = round(total_pnl/total_inv*100, 2) if total_inv else 0
+
+            pm1,pm2,pm3,pm4 = st.columns(4)
+            pm1.metric("Open positions", len(holdings))
+            pm2.metric("Total invested", f"₹{total_inv:,.0f}")
+            pm3.metric("Current value",  f"₹{total_curr:,.0f}")
+            pm4.metric("Unrealised P&L", f"₹{total_pnl:+,.0f}", f"{total_pct:+.1f}%")
+
+    # ════════════════════════════════════════════════════════════════
+    # SUB TAB 2 — Sell a Stock
+    # ════════════════════════════════════════════════════════════════
+    with sw2:
+        st.markdown("**💸 Sell a stock**")
+        if not holdings:
+            st.info("No open holdings to sell.")
+        else:
+            with st.form("sw_sell_form", clear_on_submit=True):
+                holding_syms = [h["symbol"] for h in holdings]
+                s1,s2,s3,s4 = st.columns(4)
+                with s1: sell_sym   = st.selectbox("Stock to sell", holding_syms, key="sell_sym")
+                with s2: sell_qty   = st.number_input("Qty to sell", min_value=1, step=1, key="sell_qty")
+                with s3: sell_price = st.number_input("Sell price (₹)", min_value=0.01,
+                                                       step=0.05, format="%.2f", key="sell_price")
+                with s4: sell_date  = st.date_input("Sell date", key="sell_date")
+                sell_notes = st.text_input("Notes (optional)", key="sell_notes")
+                sell_submit = st.form_submit_button("💸 Confirm sell", type="primary",
+                                                     use_container_width=True)
+
+                if sell_submit and sell_qty > 0 and sell_price > 0:
+                    pos = next((h for h in holdings if h["symbol"]==sell_sym), None)
+                    if pos:
+                        buys      = pos["buys"]
+                        total_qty = sum(b["qty"] for b in buys)
+                        avg_cost  = sum(b["qty"]*b["price"] for b in buys) / total_qty
+                        sell_qty_int = int(sell_qty)
+
+                        if sell_qty_int > total_qty:
+                            st.error(f"You only hold {total_qty} shares of {sell_sym}.")
+                        else:
+                            invested_sold = round(avg_cost * sell_qty_int, 2)
+                            proceeds      = round(float(sell_price) * sell_qty_int, 2)
+                            realised_pnl  = round(proceeds - invested_sold, 2)
+                            pnl_pct       = round(realised_pnl/invested_sold*100, 2) if invested_sold else 0
+                            hold_days     = (date.fromisoformat(str(sell_date)) -
+                                            date.fromisoformat(min(b["date"] for b in buys))).days
+
+                            # Save to sold history
+                            sold.append({
+                                "id":           len(sold)+1,
+                                "symbol":       sell_sym,
+                                "sector":       pos["sector"],
+                                "qty":          sell_qty_int,
+                                "avg_cost":     round(avg_cost, 2),
+                                "sell_price":   float(sell_price),
+                                "buy_date":     min(b["date"] for b in buys),
+                                "sell_date":    str(sell_date),
+                                "hold_days":    hold_days,
+                                "invested":     invested_sold,
+                                "proceeds":     proceeds,
+                                "realised_pnl": realised_pnl,
+                                "pnl_pct":      pnl_pct,
+                                "notes":        sell_notes,
+                            })
+
+                            # Remove from holdings
+                            if sell_qty_int == total_qty:
+                                sw_db["holdings"] = [h for h in holdings if h["symbol"]!=sell_sym]
+                            else:
+                                # Partial sell — reduce qty
+                                remaining = sell_qty_int
+                                for b in pos["buys"]:
+                                    if remaining <= 0: break
+                                    deduct = min(b["qty"], remaining)
+                                    b["qty"] -= deduct
+                                    remaining -= deduct
+                                pos["buys"] = [b for b in pos["buys"] if b["qty"] > 0]
+
+                            sw_db["sold"] = sold
+                            if sw_save(sw_db):
+                                pnl_emoji = "🟢" if realised_pnl >= 0 else "🔴"
+                                st.success(f"{pnl_emoji} Sold {sell_qty_int} {sell_sym} @ ₹{sell_price:.2f} · Realised P&L: ₹{realised_pnl:+,.0f} ({pnl_pct:+.1f}%)")
+                                st.session_state["sw_reload"] = True
+                                st.rerun()
+
+    # ════════════════════════════════════════════════════════════════
+    # SUB TAB 3 — Sold History
+    # ════════════════════════════════════════════════════════════════
+    with sw3:
+        st.markdown("**📋 Sold history**")
+        if not sold:
+            st.info("No sold trades yet.")
+        else:
+            sold_rows = []
+            for s in sorted(sold, key=lambda x: x["sell_date"], reverse=True):
+                sold_rows.append({
+                    "Ticker":      s["symbol"],
+                    "Sector":      s["sector"],
+                    "Qty":         s["qty"],
+                    "Avg Cost ₹":  f"₹{s['avg_cost']:.2f}",
+                    "Sell Price ₹":f"₹{s['sell_price']:.2f}",
+                    "Buy Date":    s["buy_date"],
+                    "Sell Date":   s["sell_date"],
+                    "Hold Days":   s["hold_days"],
+                    "Invested ₹":  f"₹{s['invested']:,.0f}",
+                    "Proceeds ₹":  f"₹{s['proceeds']:,.0f}",
+                    "Realised P&L":f"₹{s['realised_pnl']:+,.0f}",
+                    "P&L %":       f"{s['pnl_pct']:+.1f}%",
+                    "Notes":       s.get("notes","—"),
+                })
+            st.dataframe(pd.DataFrame(sold_rows), use_container_width=True, hide_index=True)
+
+            # Summary
+            total_realised = sum(s["realised_pnl"] for s in sold)
+            total_proceeds = sum(s["proceeds"] for s in sold)
+            winners = [s for s in sold if s["realised_pnl"] > 0]
+            st.markdown("")
+            r1,r2,r3,r4 = st.columns(4)
+            r1.metric("Total trades",    len(sold))
+            r2.metric("Total realised",  f"₹{total_realised:+,.0f}")
+            r3.metric("Win rate",        f"{len(winners)/len(sold)*100:.0f}%")
+            r4.metric("Total proceeds",  f"₹{total_proceeds:,.0f}")
+
+            st.download_button("⬇ Download sold history",
+                               pd.DataFrame(sold_rows).to_csv(index=False),
+                               "vedhi_swing_sold.csv", "text/csv")
+
+
 
 with tab2:
     import math

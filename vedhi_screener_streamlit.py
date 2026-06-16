@@ -1080,8 +1080,168 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
 
             st.divider()
 
+    # ── Monthly P&L Snapshot Tracker ──────────────────────────────────────────
+    st.divider()
+    st.markdown("## 📅 Monthly P&L History")
+    st.markdown("Auto-saves a snapshot on the first open of each month. Use the button to save anytime.")
 
-with tab3:
+    this_month = pd.Timestamp.now().strftime("%Y-%m")
+
+    def save_monthly_snapshot(label="auto"):
+        """Calculate current P&L across all positions and save as monthly snapshot."""
+        if not positions:
+            return False
+        snap_positions = []
+        total_invested = 0
+        total_current  = 0
+        total_premium  = 0
+        for pos in positions:
+            buys         = pos.get("buys", [])
+            total_shares = sum(b["shares"] for b in buys)
+            if total_shares == 0: continue
+            avg_cost     = sum(b["shares"]*b["price"] for b in buys) / total_shares
+            live         = get_live_price(pos["symbol"])
+            ltp          = live["ltp"] if live else avg_cost
+            invested     = round(avg_cost * total_shares, 2)
+            current      = round(ltp * total_shares, 2)
+            prem         = sum(c.get("premium_income", 0) for c in pos.get("cc_cycles", []))
+            stock_pnl    = round(current - invested, 2)
+            total_invested += invested
+            total_current  += current
+            total_premium  += prem
+            snap_positions.append({
+                "symbol":       pos["symbol"],
+                "shares":       total_shares,
+                "avg_cost":     round(avg_cost, 2),
+                "ltp":          ltp,
+                "invested":     invested,
+                "current_val":  current,
+                "stock_pnl":    stock_pnl,
+                "premium":      prem,
+                "combined_pnl": round(stock_pnl + prem, 2),
+            })
+
+        snapshot = {
+            "month":         this_month,
+            "date":          pd.Timestamp.now().strftime("%Y-%m-%d"),
+            "label":         label,
+            "total_invested":round(total_invested, 2),
+            "total_current": round(total_current, 2),
+            "stock_pnl":     round(total_current - total_invested, 2),
+            "total_premium": round(total_premium, 2),
+            "combined_pnl":  round(total_current - total_invested + total_premium, 2),
+            "positions":     snap_positions,
+        }
+
+        # Load, update, save
+        snapshots = sc_db.get("monthly_snapshots", [])
+        # Replace existing snapshot for this month if exists
+        snapshots = [s for s in snapshots if s["month"] != this_month]
+        snapshots.append(snapshot)
+        sc_db["monthly_snapshots"] = snapshots
+        return sc_save(sc_db)
+
+    snapshots = sc_db.get("monthly_snapshots", [])
+
+    # Auto-save if no snapshot for this month yet
+    if positions and not any(s["month"] == this_month for s in snapshots):
+        if save_monthly_snapshot("auto"):
+            st.session_state["sc_reload"] = True
+            snapshots = sc_db.get("monthly_snapshots", [])
+
+    # Manual save button
+    col_snap, _ = st.columns([1, 3])
+    with col_snap:
+        if st.button("📸 Save this month's snapshot", type="secondary"):
+            if save_monthly_snapshot("manual"):
+                st.success(f"✓ Snapshot for {this_month} saved!")
+                st.session_state["sc_reload"] = True
+                st.rerun()
+
+    if not snapshots:
+        st.info("No monthly snapshots yet. Add positions and the first snapshot will be saved automatically.")
+    else:
+        # Sort by month
+        snapshots_sorted = sorted(snapshots, key=lambda x: x["month"])
+
+        # ── Summary chart ─────────────────────────────────────────────────────
+        import altair as alt
+        df_snap = pd.DataFrame([{
+            "Month":         s["month"],
+            "Stock P&L":     s["stock_pnl"],
+            "Premium":       s["total_premium"],
+            "Combined P&L":  s["combined_pnl"],
+            "Invested":      s["total_invested"],
+        } for s in snapshots_sorted])
+
+        # Combined P&L line + Premium bars
+        base = alt.Chart(df_snap)
+        bars = base.mark_bar(color="#185FA5", opacity=0.7,
+                             cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+            x=alt.X("Month:O", axis=alt.Axis(labelAngle=-30)),
+            y=alt.Y("Premium:Q", title="Premium income (₹)"),
+            tooltip=["Month", alt.Tooltip("Premium:Q", format=",.0f")]
+        )
+        line = base.mark_line(
+            color="#1D9E75", strokeWidth=2.5, point=True
+        ).encode(
+            x="Month:O",
+            y=alt.Y("Combined P&L:Q", title="Combined P&L (₹)"),
+            tooltip=["Month", alt.Tooltip("Combined P&L:Q", format="+,.0f")]
+        )
+        st.altair_chart(
+            alt.layer(bars, line).resolve_scale(y="independent"),
+            use_container_width=True, theme=None
+        )
+        st.caption("🔵 Bars = monthly premium income · 🟢 Line = combined P&L (stock + premium)")
+
+        # ── Month-by-month table ──────────────────────────────────────────────
+        st.markdown("#### Month-by-month breakdown")
+        rows = []
+        for s in snapshots_sorted:
+            pnl_pct = round(s["combined_pnl"]/s["total_invested"]*100, 1) if s["total_invested"] else 0
+            rows.append({
+                "Month":          s["month"],
+                "Invested ₹":     f"₹{s['total_invested']:,.0f}",
+                "Mkt Value ₹":    f"₹{s['total_current']:,.0f}",
+                "Stock P&L":      f"₹{s['stock_pnl']:+,.0f}",
+                "Premium ₹":      f"₹{s['total_premium']:,.0f}",
+                "Combined P&L":   f"₹{s['combined_pnl']:+,.0f}",
+                "Return %":       f"{pnl_pct:+.1f}%",
+                "Saved":          s.get("label","auto"),
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+        # ── Position-level drilldown ──────────────────────────────────────────
+        st.markdown("#### Drill down by month")
+        selected_month = st.selectbox(
+            "Select month to see position breakdown",
+            options=[s["month"] for s in snapshots_sorted],
+            index=len(snapshots_sorted)-1
+        )
+        sel = next((s for s in snapshots if s["month"]==selected_month), None)
+        if sel and sel.get("positions"):
+            drill_rows = []
+            for p in sel["positions"]:
+                drill_rows.append({
+                    "Stock":        p["symbol"],
+                    "Shares":       p["shares"],
+                    "Avg Cost ₹":   f"₹{p['avg_cost']:.2f}",
+                    "Price ₹":      f"₹{p['ltp']:.2f}",
+                    "Invested ₹":   f"₹{p['invested']:,.0f}",
+                    "Mkt Value ₹":  f"₹{p['current_val']:,.0f}",
+                    "Stock P&L":    f"₹{p['stock_pnl']:+,.0f}",
+                    "Premium ₹":    f"₹{p['premium']:,.0f}",
+                    "Combined ₹":   f"₹{p['combined_pnl']:+,.0f}",
+                })
+            st.dataframe(pd.DataFrame(drill_rows), use_container_width=True, hide_index=True)
+
+        # Download full history
+        st.download_button(
+            "⬇ Download full P&L history CSV",
+            pd.DataFrame(rows).to_csv(index=False),
+            "vedhi_monthly_pnl.csv", "text/csv"
+        )
     import json, base64
     import requests
 

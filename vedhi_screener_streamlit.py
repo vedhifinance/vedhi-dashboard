@@ -517,69 +517,6 @@ Risk = entry price minus stop loss. Reward = target minus entry price.
             """)
         st.caption("All indicators calculated from Yahoo Finance 2-year daily data · Not financial advice")
 
-    # ── Tranche Calculator (always visible) ──────────────────────────────────
-    st.markdown("#### 📦 2-Tranche Buy Calculator")
-    st.markdown("Enter any stock price and stop loss to instantly calculate your tranche plan.")
-
-    tc1, tc2, tc3 = st.columns(3)
-    with tc1:
-        tc_price = st.number_input("Stock entry price (₹)", min_value=1.0,
-                                    step=0.5, format="%.2f", value=400.0, key="tc_price")
-    with tc2:
-        tc_stop  = st.number_input("Stop loss price (₹)", min_value=1.0,
-                                    step=0.5, format="%.2f", value=388.0, key="tc_stop")
-    with tc3:
-        tc_lot   = st.number_input("Lot size (shares)", min_value=1,
-                                    step=1, value=1500, key="tc_lot")
-
-    tc_t1_shares = round(tc_lot * 0.60)
-    tc_t2_shares = tc_lot - tc_t1_shares
-    tc_t1_cost   = round(tc_price * tc_t1_shares, 2)
-    tc_t2_cost   = round(tc_stop  * 1.01 * tc_t2_shares, 2)
-    tc_t2_price  = round(tc_stop  * 1.01, 2)
-    tc_avg       = round((tc_t1_cost + tc_t2_cost) / tc_lot, 2)
-    tc_total     = round(tc_t1_cost + tc_t2_cost, 2)
-    tc_tgt1      = round(tc_avg * 1.04, 2)
-    tc_tgt2      = round(tc_avg * 1.08, 2)
-    tc_risk      = round((tc_avg - tc_stop) * tc_lot, 2)
-    tc_reward    = round((tc_tgt2 - tc_avg) * tc_lot, 2)
-    tc_rr        = round(tc_reward / tc_risk, 2) if tc_risk > 0 else 0
-
-    st.markdown(f"""
-    <div style="background:#FAFAF8;border:0.5px solid #E0DED8;border-radius:10px;
-                padding:14px 18px;margin:10px 0 20px">
-      <div style="font-size:12px;color:#D98A1A;margin-bottom:12px;font-weight:500">
-        ⚡ If stock shoots up after Tranche 1 — sell at target, skip Tranche 2 completely.
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-        <div style="background:#E6F1FB;border-radius:8px;padding:12px 14px">
-          <div style="font-size:10px;color:#0C447C;font-weight:600;text-transform:uppercase;margin-bottom:4px">Tranche 1 · 60%</div>
-          <div style="font-size:20px;font-weight:700;color:#185FA5">₹{tc_price:.2f}</div>
-          <div style="font-size:12px;color:#444;margin-top:3px">{tc_t1_shares:,} shares</div>
-          <div style="font-size:12px;color:#888;margin-top:2px">₹{tc_t1_cost:,.0f} capital</div>
-          <div style="font-size:11px;color:#185FA5;margin-top:6px;font-weight:500">✅ Always enter on trigger candle</div>
-        </div>
-        <div style="background:#FFF9DB;border-radius:8px;padding:12px 14px">
-          <div style="font-size:10px;color:#7A5C00;font-weight:600;text-transform:uppercase;margin-bottom:4px">Tranche 2 · 40%</div>
-          <div style="font-size:20px;font-weight:700;color:#D98A1A">₹{tc_t2_price:.2f}</div>
-          <div style="font-size:12px;color:#444;margin-top:3px">{tc_t2_shares:,} shares</div>
-          <div style="font-size:12px;color:#888;margin-top:2px">₹{tc_t2_cost:,.0f} capital</div>
-          <div style="font-size:11px;color:#D98A1A;margin-top:6px;font-weight:500">⏳ Only if price dips near stop loss</div>
-        </div>
-      </div>
-      <div style="display:flex;gap:18px;font-size:12px;flex-wrap:wrap;
-                  padding-top:10px;border-top:0.5px solid #E0DED8">
-        <span>📊 <strong>Avg cost:</strong> ₹{tc_avg:.2f}</span>
-        <span>💰 <strong>Max capital:</strong> ₹{tc_total:,.0f}</span>
-        <span>🎯 <strong>T1:</strong> ₹{tc_tgt1:.2f} (+4%) &nbsp;|&nbsp; <strong>T2:</strong> ₹{tc_tgt2:.2f} (+8%)</span>
-        <span>🛑 <strong>Stop:</strong> ₹{tc_stop:.2f}</span>
-        <span>⚖️ <strong>R:R:</strong> {tc_rr}:1</span>
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.divider()
-
     # ── Market breadth ────────────────────────────────────────────────────────
     @st.cache_data(ttl=300)
     def check_market_breadth():

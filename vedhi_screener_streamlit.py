@@ -136,20 +136,44 @@ def fetch_stock(symbol):
     try:
         df = yf.download(f"{symbol}.NS", period="1y", interval="1d", progress=False, auto_adjust=True)
         if df.empty or len(df)<55: return None
-        c = df["Close"].squeeze() if hasattr(df["Close"], "squeeze") else df["Close"] if hasattr(df["Close"], "squeeze") else df["Close"]
-        ema20 = c.ewm(span=20,adjust=False).mean().iloc[-1]
-        ema50 = c.ewm(span=50,adjust=False).mean().iloc[-1]
+        c   = df["Close"].squeeze().dropna()
+        c   = c[~c.index.duplicated(keep='last')].sort_index()
+        vol = df["Volume"].squeeze().dropna()
+        vol = vol[~vol.index.duplicated(keep='last')].sort_index()
+        ema20   = c.ewm(span=20,adjust=False).mean().iloc[-1]
+        ema50   = c.ewm(span=50,adjust=False).mean().iloc[-1]
         rsi_val = calc_rsi_proper(c)
         if rsi_val is None: return None
-        rsi = rsi_val
+        rsi     = rsi_val
         e12=c.ewm(span=12,adjust=False).mean(); e26=c.ewm(span=26,adjust=False).mean()
         macd=e12-e26; sig=macd.ewm(span=9,adjust=False).mean(); hist=macd-sig
-        ltp=float(c.iloc[-1]); prev=float(c.iloc[-2])
+        ltp =float(c.iloc[-1]); prev=float(c.iloc[-2])
+        # Volume analysis
+        today_vol = float(vol.iloc[-1])
+        avg_vol   = float(vol.iloc[-21:-1].mean()) if len(vol) >= 21 else float(vol.mean())
+        vol_ratio = round(today_vol/avg_vol, 2) if avg_vol > 0 else 0
+        vol_trend = "↑ High" if vol_ratio >= 1.5 else "↗ Above" if vol_ratio >= 1.0 else "↓ Low"
+        # Derived signals
+        ema_ok   = min(ema20,ema50) <= ltp <= max(ema20,ema50)
+        bull     = ema20 > ema50
+        macd_bull= float(hist.iloc[-1]) >= 0
+        # Signal logic
+        green = sum([ema_ok, bull, macd_bull])
+        vol_ok= vol_ratio >= 1.2
+        if green == 3 and vol_ok:   signal = "🟢 Strong Buy"
+        elif green == 3:            signal = "🟡 Watch (low vol)"
+        elif green == 2 and vol_ok: signal = "🟡 Watch"
+        else:                       signal = "🔴 Avoid"
         return {
             "LTP":round(ltp,2), "Chg%":round((ltp-prev)/prev*100,2),
             "RSI":round(float(rsi),1), "EMA 20":round(float(ema20),2),
             "EMA 50":round(float(ema50),2), "MACD":round(float(macd.iloc[-1]),2),
-            "Signal":round(float(sig.iloc[-1]),2), "Histogram":round(float(hist.iloc[-1]),2),
+            "Signal Line":round(float(sig.iloc[-1]),2), "Histogram":round(float(hist.iloc[-1]),2),
+            "EMA Zone":"Yes" if ema_ok else "No",
+            "Trend":"Bull" if bull else "Bear",
+            "MACD Bias":"Bull" if macd_bull else "Bear",
+            "Vol Ratio":vol_ratio, "Vol Trend":vol_trend,
+            "Signal":signal,
         }
     except: return None
 
@@ -170,16 +194,18 @@ if run:
         data = fetch_stock(sym)
         if data:
             ltp,e20,e50 = data["LTP"],data["EMA 20"],data["EMA 50"]
-            ema_ok = min(e20,e50) <= ltp <= max(e20,e50)
-            bull   = e20 > e50
             results.append({
                 "Stock":sym, "Sector":meta["sector"],
                 "LTP ₹":ltp, "Chg%":data["Chg%"], "RSI":data["RSI"],
                 "EMA 20":e20, "EMA 50":e50,
-                "MACD":data["MACD"], "Signal":data["Signal"], "Histogram":data["Histogram"],
-                "EMA Zone":"Yes" if ema_ok else "No",
-                "Trend":"Bull" if bull else "Bear",
-                "MACD Bias":"Bull" if data["Histogram"]>=0 else "Bear",
+                "MACD":data["MACD"], "Signal Line":data["Signal Line"],
+                "Histogram":data["Histogram"],
+                "EMA Zone":data["EMA Zone"],
+                "Trend":data["Trend"],
+                "MACD Bias":data["MACD Bias"],
+                "Vol Ratio":data["Vol Ratio"],
+                "Vol Trend":data["Vol Trend"],
+                "Signal":data["Signal"],
                 "Lot":meta["lot"],
             })
     prog.empty()
@@ -195,8 +221,8 @@ if run:
         c1,c2,c3,c4,c5 = st.columns(5)
         c1.metric("Screened", len(results))
         c2.metric("Matches",  len(df))
-        c3.metric("EMA zone", int((df["EMA Zone"]=="Yes").sum()))
-        c4.metric("Bullish",  int((df["Trend"]=="Bull").sum()))
+        c3.metric("EMA zone",   int((df["EMA Zone"]=="Yes").sum()) if "EMA Zone" in df.columns else 0)
+        c4.metric("Bullish",  int((df["Trend"]=="Bull").sum()) if "Trend" in df.columns else 0)
         c5.metric("Avg RSI",  round(df["RSI"].mean(),1) if len(df) else "—")
         if df.empty:
             st.info("No stocks match the filters.")
@@ -204,7 +230,8 @@ if run:
             # Remove injected CSS — not needed with HTML table
             # Build HTML table with black headers, white text
             cols = ["Stock","Sector","LTP ₹","Chg%","RSI","EMA 20","EMA 50",
-                    "MACD","Signal","Histogram","EMA Zone","Trend","MACD Bias","Lot"]
+                    "MACD","Signal Line","Histogram","EMA Zone","Trend","MACD Bias",
+                    "Vol Ratio","Vol Trend","Signal","Lot"]
 
             def cell_style(col, val, row=None):
                 if col == "Stock":
@@ -225,15 +252,24 @@ if run:
                 if col == "EMA Zone":
                     return "background:#D6F5E3;color:#1A5C35;font-weight:600" if val=="Yes" \
                         else "background:#FDDCDC;color:#7A1A1A;font-weight:600"
+                if col == "Vol Trend":
+                    if "High" in str(val):   return "background:#D6F5E3;color:#1A5C35;font-weight:600"
+                    if "Above" in str(val):  return "color:#1D9E75;font-weight:500"
+                    return "color:#E24B4A;font-weight:500"
+                if col == "Signal":
+                    if "Strong Buy" in str(val): return "background:#1D9E75;color:white;font-weight:700"
+                    if "Watch" in str(val):      return "background:#F5C842;color:#1A1A18;font-weight:600"
+                    if "Avoid" in str(val):      return "background:#E24B4A;color:white;font-weight:700"
                 return ""
 
             def fmt_val(col, val):
-                if col == "LTP ₹":    return f"₹{val:.2f}"
-                if col == "Chg%":     return f"{val:+.2f}%"
-                if col == "RSI":      return f"{val:.1f}"
+                if col == "LTP ₹":      return f"₹{val:.2f}"
+                if col == "Chg%":       return f"{val:+.2f}%"
+                if col == "RSI":        return f"{val:.1f}"
                 if col in ["EMA 20","EMA 50"]: return f"₹{val:.2f}"
-                if col in ["MACD","Signal","Histogram"]: return f"{val:.2f}"
-                if col == "Lot":      return f"{int(val):,}"
+                if col in ["MACD","Signal Line","Histogram"]: return f"{val:.2f}"
+                if col == "Vol Ratio":  return f"{val:.2f}x"
+                if col == "Lot":        return f"{int(val):,}"
                 return str(val)
 
             header_html = "".join(

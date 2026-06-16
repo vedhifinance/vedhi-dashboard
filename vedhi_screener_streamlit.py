@@ -556,13 +556,12 @@ Risk = entry price minus stop loss. Reward = target minus entry price.
         bc = {"green":"#D6F5E3","yellow":"#FFF9DB","red":"#FDDCDC"}
         bc2= {"green":"#1A5C35","yellow":"#7A5C00","red":"#7A1A1A"}
         st.markdown(f"""
-        <div style="background:{bc[breadth['condition']]};border:1.5px solid;
+        <div style="background:{bc[breadth['condition']]};border:0.5px solid;
                     border-color:{'#1D9E75' if breadth['condition']=='green' else '#F5C842' if breadth['condition']=='yellow' else '#E24B4A'};
-                    border-radius:10px;padding:14px 20px;margin-bottom:18px;
-                    font-size:14px;font-weight:500;color:{bc2[breadth['condition']]}">
+                    border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px;color:{bc2[breadth['condition']]}">
           {breadth['label']}<br>
-          <span style="font-size:12px;font-weight:400;opacity:.8">
-            Nifty: ₹{breadth['nifty_ltp']:,.0f} · EMA 50: ₹{breadth['nifty_ema50']:,.0f} · EMA 200: ₹{breadth['nifty_ema200']:,.0f}
+          <span style="font-size:11px;opacity:.8">
+            Nifty: ₹{breadth['nifty_ltp']:,.0f} &nbsp;·&nbsp; EMA 50: ₹{breadth['nifty_ema50']:,.0f} &nbsp;·&nbsp; EMA 200: ₹{breadth['nifty_ema200']:,.0f}
           </span>
         </div>
         """, unsafe_allow_html=True)
@@ -751,57 +750,49 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
 
             for q in qualifiers:
                 score_color = "#1D9E75" if q["Score"]>=8 else "#D98A1A" if q["Score"]>=6 else "#888"
+
+                # ── Stock header card ─────────────────────────────────────────
+                chg_color = "#1D9E75" if q['Chg%']>=0 else "#E24B4A"
                 st.markdown(f"""
-                <div style="background:#F2FBF6;border:1.5px solid #1D9E75;border-radius:12px;
-                            padding:16px 20px;margin-bottom:8px">
+                <div style="background:#fff;border:0.5px solid #E0DED8;border-radius:10px;
+                            padding:14px 18px;margin-bottom:10px;
+                            border-left:4px solid {score_color}">
                   <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-                    <div>
-                      <span style="background:#1A1A18;color:white;font-weight:700;font-size:16px;
-                                   padding:4px 14px;border-radius:6px">{q['Stock']}</span>
-                      <span style="background:#EFEFEC;color:#555;font-size:11px;font-weight:500;
-                                   padding:3px 10px;border-radius:10px;margin-left:8px">{q['Sector']}</span>
-                      <span style="font-size:13px;margin-left:8px;font-weight:600">{q['Candle']}</span>
-                      <span style="background:{score_color};color:white;font-size:11px;font-weight:700;
-                                   padding:2px 10px;border-radius:20px;margin-left:8px">
-                        Score {q['Score']}/10
-                      </span>
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                      <span style="background:#1A1A18;color:white;font-weight:600;font-size:14px;
+                                   padding:4px 12px;border-radius:6px">{q['Stock']}</span>
+                      <span style="color:#6B6B68;font-size:12px">{q['Sector']}</span>
+                      <span style="font-size:12px;color:#444">{q['Candle']}</span>
+                      <span style="background:{score_color};color:white;font-size:10px;font-weight:600;
+                                   padding:2px 8px;border-radius:20px">Score {q['Score']}/10</span>
                     </div>
                     <div style="text-align:right">
-                      <div style="font-size:22px;font-weight:700">₹{q['LTP ₹']:.2f}</div>
-                      <div style="font-size:13px;color:{'#1D9E75' if q['Chg%']>=0 else '#E24B4A'};font-weight:500">
+                      <span style="font-size:18px;font-weight:600;color:#1A1A18">₹{q['LTP ₹']:.2f}</span>
+                      <span style="font-size:12px;color:{chg_color};margin-left:8px">
                         {'+' if q['Chg%']>=0 else ''}{q['Chg%']:.2f}%
-                      </div>
+                      </span>
                     </div>
                   </div>
                 </div>
                 """, unsafe_allow_html=True)
 
-                # Metrics
+                # ── Key indicators in clean columns ───────────────────────────
                 m1,m2,m3,m4,m5,m6 = st.columns(6)
-                m1.metric("RSI",         f"{q['RSI']}",       "30–50 ✓")
-                m2.metric("EMA 200",     f"₹{q['EMA 200']:.0f}","5%+ above ✓")
-                m3.metric("EMA gap",     f"{q['EMA gap%']}%", "Meaningful ✓")
-                m4.metric("Vol ratio",   f"{q['Vol ratio']}x","≥1.2x ✓")
-                m5.metric("R:R ratio",   f"{q['R:R ratio']}:1","Risk/Reward")
-                m6.metric("% from high", f"{q['% from high']}%","Below 52W high")
+                m1.metric("RSI",          f"{q['RSI']}",          "30–50 ✓")
+                m2.metric("EMA 200",      f"₹{q['EMA 200']:,.0f}","5%+ above ✓")
+                m3.metric("EMA gap",      f"{q['EMA gap%']}%",    "Meaningful ✓")
+                m4.metric("Volume",       f"{q['Vol ratio']}x",   "≥1.2x ✓")
+                m5.metric("Risk/Reward",  f"{q['R:R ratio']}:1")
+                m6.metric("From 52W High",f"{q['% from high']}%")
 
-                # Stop loss & targets
-                st.markdown(f"""
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0">
-                  <div style="background:#FDDCDC;border-radius:8px;padding:12px 16px">
-                    <div style="font-size:10px;color:#7A1A1A;text-transform:uppercase;font-weight:600;margin-bottom:4px">Stop Loss</div>
-                    <div style="font-size:18px;font-weight:700;color:#7A1A1A">₹{q['Stop loss']:.2f}</div>
-                    <div style="font-size:11px;color:#888">Just below candle low</div>
-                  </div>
-                  <div style="background:#D6F5E3;border-radius:8px;padding:12px 16px">
-                    <div style="font-size:10px;color:#1A5C35;text-transform:uppercase;font-weight:600;margin-bottom:4px">Targets</div>
-                    <div style="font-size:15px;font-weight:700;color:#1A5C35">T1: ₹{q['Target 1 (4%)']:.2f} &nbsp;|&nbsp; T2: ₹{q['Target 2 (8%)']:.2f}</div>
-                    <div style="font-size:11px;color:#888">Book 50% at T1, rest at T2</div>
-                  </div>
-                </div>
-                """, unsafe_allow_html=True)
+                # ── Trade plan in a clean 4-column grid ───────────────────────
+                tp1,tp2,tp3,tp4 = st.columns(4)
+                tp1.metric("Entry",      f"₹{q['LTP ₹']:.2f}",     "Trigger candle")
+                tp2.metric("Stop Loss",  f"₹{q['Stop loss']:.2f}",  "Below candle low")
+                tp3.metric("Target T1",  f"₹{q['Target 1 (4%)']:.2f}", "+4% · book 50%")
+                tp4.metric("Target T2",  f"₹{q['Target 2 (8%)']:.2f}", "+8% · ride rest")
 
-                # 2-tranche plan
+                # ── 2-tranche plan ────────────────────────────────────────────
                 t1_price  = q['LTP ₹']
                 t2_price  = round(q['Stop loss'] * 1.01, 2)
                 lot       = q['Lot']
@@ -813,49 +804,31 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
                 total_cost= round(t1_cost+t2_cost, 2)
 
                 st.markdown(f"""
-                <div style="background:#FAFAF8;border:0.5px solid #E0DED8;border-radius:10px;
-                            padding:14px 18px;margin:10px 0">
+                <div style="background:#F7F7F5;border:0.5px solid #E0DED8;border-radius:8px;
+                            padding:12px 16px;margin:8px 0">
                   <div style="font-size:11px;font-weight:600;color:#6B6B68;text-transform:uppercase;
-                              letter-spacing:.05em;margin-bottom:6px">
-                    📦 2-Tranche Buy Plan — 1 Lot ({lot:,} shares)
-                  </div>
-                  <div style="font-size:12px;color:#D98A1A;margin-bottom:12px;font-weight:500">
-                    ⚡ If stock shoots up after Tranche 1 — sell at target, skip Tranche 2 completely.
-                  </div>
-                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-                    <div style="background:#E6F1FB;border-radius:8px;padding:12px 14px">
-                      <div style="font-size:10px;color:#0C447C;font-weight:600;text-transform:uppercase;margin-bottom:4px">Tranche 1 · 60%</div>
-                      <div style="font-size:18px;font-weight:700;color:#185FA5">₹{t1_price:.2f}</div>
-                      <div style="font-size:12px;color:#444;margin-top:3px">{t1_shares:,} shares · ₹{t1_cost:,.0f}</div>
-                      <div style="font-size:11px;color:#185FA5;margin-top:6px;font-weight:500">✅ Always enter on trigger candle</div>
+                              letter-spacing:.05em;margin-bottom:8px">2-Tranche Buy Plan · {lot:,} shares (1 lot)</div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">
+                    <div style="background:#E6F1FB;border-radius:6px;padding:10px 12px">
+                      <div style="font-size:10px;color:#0C447C;font-weight:600;text-transform:uppercase;margin-bottom:3px">Tranche 1 · 60%</div>
+                      <div style="font-size:14px;font-weight:600;color:#185FA5">₹{t1_price:.2f} &nbsp;·&nbsp; {t1_shares:,} shares &nbsp;·&nbsp; ₹{t1_cost:,.0f}</div>
+                      <div style="font-size:11px;color:#185FA5;margin-top:3px">✅ Enter on trigger candle</div>
                     </div>
-                    <div style="background:#FFF9DB;border-radius:8px;padding:12px 14px">
-                      <div style="font-size:10px;color:#7A5C00;font-weight:600;text-transform:uppercase;margin-bottom:4px">Tranche 2 · 40%</div>
-                      <div style="font-size:18px;font-weight:700;color:#D98A1A">₹{t2_price:.2f}</div>
-                      <div style="font-size:12px;color:#444;margin-top:3px">{t2_shares:,} shares · ₹{t2_cost:,.0f}</div>
-                      <div style="font-size:11px;color:#D98A1A;margin-top:6px;font-weight:500">⏳ Only if price dips near stop loss</div>
+                    <div style="background:#FFF9DB;border-radius:6px;padding:10px 12px">
+                      <div style="font-size:10px;color:#7A5C00;font-weight:600;text-transform:uppercase;margin-bottom:3px">Tranche 2 · 40%</div>
+                      <div style="font-size:14px;font-weight:600;color:#D98A1A">₹{t2_price:.2f} &nbsp;·&nbsp; {t2_shares:,} shares &nbsp;·&nbsp; ₹{t2_cost:,.0f}</div>
+                      <div style="font-size:11px;color:#D98A1A;margin-top:3px">⏳ Only if price dips near stop</div>
                     </div>
                   </div>
-                  <div style="display:flex;gap:20px;font-size:12px;flex-wrap:wrap;
-                              padding-top:10px;border-top:0.5px solid #E0DED8">
-                    <span>📊 <strong>Avg cost:</strong> ₹{avg_price:.2f}</span>
-                    <span>💰 <strong>Max capital:</strong> ₹{total_cost:,.0f}</span>
-                    <span>🎯 <strong>Target:</strong> ₹{round(avg_price*1.08,2):.2f} (+8%)</span>
-                    <span>🛑 <strong>Stop:</strong> ₹{q['Stop loss']:.2f}</span>
+                  <div style="font-size:12px;color:#444;display:flex;gap:16px;flex-wrap:wrap">
+                    <span>Avg cost: <strong>₹{avg_price:.2f}</strong></span>
+                    <span>Max capital: <strong>₹{total_cost:,.0f}</strong></span>
+                    <span>CC strike: <strong>₹{q['CC Strike']}</strong></span>
+                    <span>52W High: <strong>₹{q['52W High']:.2f}</strong></span>
                   </div>
                 </div>
                 """, unsafe_allow_html=True)
-
-                # Covered call note
-                st.markdown(f"""
-                <div style="background:#E6F1FB;border:0.5px solid #85B7EB;border-radius:8px;
-                            padding:12px 16px;margin-bottom:20px;font-size:13px">
-                  💡 <strong>Covered call plan:</strong> Sell call after position is fully built
-                  → <strong>₹{q['CC Strike']} strike</strong> (monthly expiry, 20–30 DTE)
-                  · 52W High: ₹{q['52W High']:.2f} · Lot: {lot:,} shares
-                </div>
-                """, unsafe_allow_html=True)
-                st.divider()
+                st.markdown("---")
 
             # Download
             df_q = pd.DataFrame(qualifiers)

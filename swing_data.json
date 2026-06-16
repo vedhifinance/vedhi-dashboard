@@ -1,4 +1,18 @@
 {
-  "holdings": [],
+  "holdings": [
+    {
+      "id": 1,
+      "symbol": "HINDALCO",
+      "sector": "Metal",
+      "buys": [
+        {
+          "qty": 16,
+          "price": 978.6,
+          "date": "2026-06-16",
+          "notes": ""
+        }
+      ]
+    }
+  ],
   "sold": []
 }

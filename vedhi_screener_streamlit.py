@@ -896,8 +896,8 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
     import json, base64, requests as req2
 
     st.divider()
-    st.markdown("## 📁 Swing-Covered Position Tracker")
-    st.markdown("Track your partial buys, build to full lot, monitor P&L and covered call income.")
+    st.markdown("#### 📁 Swing-Covered Position Tracker")
+    st.caption("Track your partial buys, build to full lot, monitor P&L and covered call income.")
 
     SC_FILE = "swing_covered_data.json"
 
@@ -985,7 +985,7 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
         st.divider()
 
     # ── Add new position ──────────────────────────────────────────────────────
-    st.markdown("#### ➕ Add / Update position")
+    st.markdown("**➕ Add / Update position**")
     symbols_list = list(NIFTY50.keys())
 
     with st.form("sc_add_position", clear_on_submit=True):
@@ -1025,7 +1025,7 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
         st.info("No positions yet. Add your first buy above.")
     else:
         st.divider()
-        st.markdown("#### 📊 Current positions")
+        st.markdown("**📊 Current positions**")
 
         for pos in positions:
             sym      = pos["symbol"]
@@ -1136,8 +1136,8 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
 
     # ── Monthly P&L Snapshot Tracker ──────────────────────────────────────────
     st.divider()
-    st.markdown("## 📅 Monthly P&L History")
-    st.markdown("Auto-saves a snapshot on the first open of each month. Use the button to save anytime.")
+    st.markdown("#### 📅 Monthly P&L History")
+    st.caption("Auto-saves a snapshot on the first open of each month. Use the button to save anytime.")
 
     this_month = pd.Timestamp.now().strftime("%Y-%m")
 

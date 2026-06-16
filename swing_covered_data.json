@@ -33,5 +33,30 @@
       ],
       "cc_cycles": []
     }
+  ],
+  "monthly_snapshots": [
+    {
+      "month": "2026-06",
+      "date": "2026-06-16",
+      "label": "auto",
+      "total_invested": 486236.68,
+      "total_current": 488972.71,
+      "stock_pnl": 2736.03,
+      "total_premium": 0,
+      "combined_pnl": 2736.03,
+      "positions": [
+        {
+          "symbol": "NTPC",
+          "shares": 1377,
+          "avg_cost": 353.11,
+          "ltp": 355.1000061035156,
+          "invested": 486236.68,
+          "current_val": 488972.71,
+          "stock_pnl": 2736.03,
+          "premium": 0,
+          "combined_pnl": 2736.03
+        }
+      ]
+    }
   ]
 }

@@ -656,172 +656,156 @@ Risk = entry price minus stop loss. Reward = target minus entry price.
 
     # ── Run button ────────────────────────────────────────────────────────────
     st.markdown("#### Swing-Covered Scanner")
+    run2 = st.button("▶ Run Swing-Covered Scanner", type="primary", key="run2")
 
-    if breadth and breadth["condition"] == "red":
-        st.error("🔴 Market is below EMA 200. Scanner disabled — protect your capital first.")
-    else:
-        run2 = st.button("▶ Run Swing-Covered Scanner", type="primary", key="run2")
+    if run2:
+        qualifiers = []
+        prog2 = st.progress(0, text="Starting…")
+        for i,(sym,meta) in enumerate(NIFTY50.items()):
+            prog2.progress((i+1)/len(NIFTY50), text=f"Scanning {sym}…")
+            result, reason = screen_swing_covered(sym)
+            if result:
+                qualifiers.append({
+                    "Stock":sym,"Sector":meta["sector"],"Lot":meta["lot"],**result
+                })
+        prog2.empty()
 
-        if run2:
-            qualifiers = []
-            prog2 = st.progress(0, text="Starting…")
+        # Sort by confidence score
+        qualifiers.sort(key=lambda x: x["Score"], reverse=True)
 
-            for i,(sym,meta) in enumerate(NIFTY50.items()):
-                prog2.progress((i+1)/len(NIFTY50), text=f"Scanning {sym}…")
-                result, reason = screen_swing_covered(sym)
-                if result:
-                    qualifiers.append({
-                        "Stock":sym,"Sector":meta["sector"],"Lot":meta["lot"],**result
-                    })
+        st.divider()
+        s1,s2,s3,s4 = st.columns(4)
+        s1.metric("Scanned",         len(NIFTY50))
+        s2.metric("Passed all 7",    len(qualifiers))
+        s3.metric("Success rate",    f"{len(qualifiers)/len(NIFTY50)*100:.1f}%")
+        s4.metric("Market condition","🟢 Go" if breadth and breadth["condition"]=="green" else "🟡 Caution" if breadth and breadth["condition"]=="yellow" else "🔴 Bear")
 
-            prog2.empty()
-
-            # Sort by confidence score
-            qualifiers.sort(key=lambda x: x["Score"], reverse=True)
-
-            st.divider()
-            s1,s2,s3,s4 = st.columns(4)
-            s1.metric("Scanned",          len(NIFTY50))
-            s2.metric("Passed all 7",     len(qualifiers))
-            s3.metric("Success rate",     f"{len(qualifiers)/len(NIFTY50)*100:.1f}%")
-            s4.metric("Market condition", "🟢 Go" if breadth and breadth["condition"]=="green" else "🟡 Caution")
-
-            if not qualifiers:
-                st.warning("""
+        if not qualifiers:
+            st.warning("""
 **No stocks passed all 7 filters today — this is completely normal.**
 
 This strategy is intentionally very selective. On most days 0–2 stocks qualify.
 That is the point — when one qualifies it is a genuine high-confidence setup.
 
 ✅ Come back tomorrow or after a market dip — setups cluster after corrections.
-                """)
-            else:
-                st.success(f"✅ {len(qualifiers)} high-confidence setup(s) found today!")
+            """)
+        else:
+            st.success(f"✅ {len(qualifiers)} high-confidence setup(s) found today!")
+            st.divider()
+
+            for q in qualifiers:
+                score_color = "#1D9E75" if q["Score"]>=8 else "#D98A1A" if q["Score"]>=6 else "#888"
+                st.markdown(f"""
+                <div style="background:#F2FBF6;border:1.5px solid #1D9E75;border-radius:12px;
+                            padding:16px 20px;margin-bottom:8px">
+                  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+                    <div>
+                      <span style="background:#1A1A18;color:white;font-weight:700;font-size:16px;
+                                   padding:4px 14px;border-radius:6px">{q['Stock']}</span>
+                      <span style="background:#EFEFEC;color:#555;font-size:11px;font-weight:500;
+                                   padding:3px 10px;border-radius:10px;margin-left:8px">{q['Sector']}</span>
+                      <span style="font-size:13px;margin-left:8px;font-weight:600">{q['Candle']}</span>
+                      <span style="background:{score_color};color:white;font-size:11px;font-weight:700;
+                                   padding:2px 10px;border-radius:20px;margin-left:8px">
+                        Score {q['Score']}/10
+                      </span>
+                    </div>
+                    <div style="text-align:right">
+                      <div style="font-size:22px;font-weight:700">₹{q['LTP ₹']:.2f}</div>
+                      <div style="font-size:13px;color:{'#1D9E75' if q['Chg%']>=0 else '#E24B4A'};font-weight:500">
+                        {'+' if q['Chg%']>=0 else ''}{q['Chg%']:.2f}%
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Metrics
+                m1,m2,m3,m4,m5,m6 = st.columns(6)
+                m1.metric("RSI",         f"{q['RSI']}",       "30–50 ✓")
+                m2.metric("EMA 200",     f"₹{q['EMA 200']:.0f}","5%+ above ✓")
+                m3.metric("EMA gap",     f"{q['EMA gap%']}%", "Meaningful ✓")
+                m4.metric("Vol ratio",   f"{q['Vol ratio']}x","≥1.2x ✓")
+                m5.metric("R:R ratio",   f"{q['R:R ratio']}:1","Risk/Reward")
+                m6.metric("% from high", f"{q['% from high']}%","Below 52W high")
+
+                # Stop loss & targets
+                st.markdown(f"""
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0">
+                  <div style="background:#FDDCDC;border-radius:8px;padding:12px 16px">
+                    <div style="font-size:10px;color:#7A1A1A;text-transform:uppercase;font-weight:600;margin-bottom:4px">Stop Loss</div>
+                    <div style="font-size:18px;font-weight:700;color:#7A1A1A">₹{q['Stop loss']:.2f}</div>
+                    <div style="font-size:11px;color:#888">Just below candle low</div>
+                  </div>
+                  <div style="background:#D6F5E3;border-radius:8px;padding:12px 16px">
+                    <div style="font-size:10px;color:#1A5C35;text-transform:uppercase;font-weight:600;margin-bottom:4px">Targets</div>
+                    <div style="font-size:15px;font-weight:700;color:#1A5C35">T1: ₹{q['Target 1 (4%)']:.2f} &nbsp;|&nbsp; T2: ₹{q['Target 2 (8%)']:.2f}</div>
+                    <div style="font-size:11px;color:#888">Book 50% at T1, rest at T2</div>
+                  </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # 2-tranche plan
+                t1_price  = q['LTP ₹']
+                t2_price  = round(q['Stop loss'] * 1.01, 2)
+                lot       = q['Lot']
+                t1_shares = round(lot * 0.60)
+                t2_shares = lot - t1_shares
+                t1_cost   = round(t1_price * t1_shares, 2)
+                t2_cost   = round(t2_price * t2_shares, 2)
+                avg_price = round((t1_cost+t2_cost)/(t1_shares+t2_shares), 2)
+                total_cost= round(t1_cost+t2_cost, 2)
+
+                st.markdown(f"""
+                <div style="background:#FAFAF8;border:0.5px solid #E0DED8;border-radius:10px;
+                            padding:14px 18px;margin:10px 0">
+                  <div style="font-size:11px;font-weight:600;color:#6B6B68;text-transform:uppercase;
+                              letter-spacing:.05em;margin-bottom:6px">
+                    📦 2-Tranche Buy Plan — 1 Lot ({lot:,} shares)
+                  </div>
+                  <div style="font-size:12px;color:#D98A1A;margin-bottom:12px;font-weight:500">
+                    ⚡ If stock shoots up after Tranche 1 — sell at target, skip Tranche 2 completely.
+                  </div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+                    <div style="background:#E6F1FB;border-radius:8px;padding:12px 14px">
+                      <div style="font-size:10px;color:#0C447C;font-weight:600;text-transform:uppercase;margin-bottom:4px">Tranche 1 · 60%</div>
+                      <div style="font-size:18px;font-weight:700;color:#185FA5">₹{t1_price:.2f}</div>
+                      <div style="font-size:12px;color:#444;margin-top:3px">{t1_shares:,} shares · ₹{t1_cost:,.0f}</div>
+                      <div style="font-size:11px;color:#185FA5;margin-top:6px;font-weight:500">✅ Always enter on trigger candle</div>
+                    </div>
+                    <div style="background:#FFF9DB;border-radius:8px;padding:12px 14px">
+                      <div style="font-size:10px;color:#7A5C00;font-weight:600;text-transform:uppercase;margin-bottom:4px">Tranche 2 · 40%</div>
+                      <div style="font-size:18px;font-weight:700;color:#D98A1A">₹{t2_price:.2f}</div>
+                      <div style="font-size:12px;color:#444;margin-top:3px">{t2_shares:,} shares · ₹{t2_cost:,.0f}</div>
+                      <div style="font-size:11px;color:#D98A1A;margin-top:6px;font-weight:500">⏳ Only if price dips near stop loss</div>
+                    </div>
+                  </div>
+                  <div style="display:flex;gap:20px;font-size:12px;flex-wrap:wrap;
+                              padding-top:10px;border-top:0.5px solid #E0DED8">
+                    <span>📊 <strong>Avg cost:</strong> ₹{avg_price:.2f}</span>
+                    <span>💰 <strong>Max capital:</strong> ₹{total_cost:,.0f}</span>
+                    <span>🎯 <strong>Target:</strong> ₹{round(avg_price*1.08,2):.2f} (+8%)</span>
+                    <span>🛑 <strong>Stop:</strong> ₹{q['Stop loss']:.2f}</span>
+                  </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Covered call note
+                st.markdown(f"""
+                <div style="background:#E6F1FB;border:0.5px solid #85B7EB;border-radius:8px;
+                            padding:12px 16px;margin-bottom:20px;font-size:13px">
+                  💡 <strong>Covered call plan:</strong> Sell call after position is fully built
+                  → <strong>₹{q['CC Strike']} strike</strong> (monthly expiry, 20–30 DTE)
+                  · 52W High: ₹{q['52W High']:.2f} · Lot: {lot:,} shares
+                </div>
+                """, unsafe_allow_html=True)
                 st.divider()
 
-                for q in qualifiers:
-                    score_color = "#1D9E75" if q["Score"]>=8 else "#D98A1A" if q["Score"]>=6 else "#888"
-                    st.markdown(f"""
-                    <div style="background:#F2FBF6;border:1.5px solid #1D9E75;border-radius:12px;
-                                padding:16px 20px;margin-bottom:8px">
-                      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-                        <div>
-                          <span style="background:#1A1A18;color:white;font-weight:700;font-size:16px;
-                                       padding:4px 14px;border-radius:6px">{q['Stock']}</span>
-                          <span style="background:#EFEFEC;color:#555;font-size:11px;font-weight:500;
-                                       padding:3px 10px;border-radius:10px;margin-left:8px">{q['Sector']}</span>
-                          <span style="font-size:13px;margin-left:8px;font-weight:600">{q['Candle']}</span>
-                          <span style="background:{score_color};color:white;font-size:11px;font-weight:700;
-                                       padding:2px 10px;border-radius:20px;margin-left:8px">
-                            Score {q['Score']}/10
-                          </span>
-                        </div>
-                        <div style="text-align:right">
-                          <div style="font-size:22px;font-weight:700">₹{q['LTP ₹']:.2f}</div>
-                          <div style="font-size:13px;color:{'#1D9E75' if q['Chg%']>=0 else '#E24B4A'};font-weight:500">
-                            {'+' if q['Chg%']>=0 else ''}{q['Chg%']:.2f}%
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                    # Metrics
-                    m1,m2,m3,m4,m5,m6 = st.columns(6)
-                    m1.metric("RSI",        f"{q['RSI']}",      "35–45 ✓")
-                    m2.metric("EMA 200",    f"₹{q['EMA 200']:.0f}", "5%+ above ✓")
-                    m3.metric("EMA gap",    f"{q['EMA gap%']}%", "Meaningful ✓")
-                    m4.metric("Vol ratio",  f"{q['Vol ratio']}x","≥1.5x ✓")
-                    m5.metric("R:R ratio",  f"{q['R:R ratio']}:1","Risk/Reward")
-                    m6.metric("% from high",f"{q['% from high']}%","Below 52W high")
-
-                    # Trade plan
-                    st.markdown(f"""
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0">
-                      <div style="background:#FDDCDC;border-radius:8px;padding:12px 16px">
-                        <div style="font-size:10px;color:#7A1A1A;text-transform:uppercase;font-weight:600;margin-bottom:4px">Stop Loss</div>
-                        <div style="font-size:18px;font-weight:700;color:#7A1A1A">₹{q['Stop loss']:.2f}</div>
-                        <div style="font-size:11px;color:#888">Just below candle low</div>
-                      </div>
-                      <div style="background:#D6F5E3;border-radius:8px;padding:12px 16px">
-                        <div style="font-size:10px;color:#1A5C35;text-transform:uppercase;font-weight:600;margin-bottom:4px">Targets</div>
-                        <div style="font-size:15px;font-weight:700;color:#1A5C35">T1: ₹{q['Target 1 (4%)']:.2f} &nbsp;|&nbsp; T2: ₹{q['Target 2 (8%)']:.2f}</div>
-                        <div style="font-size:11px;color:#888">Book 50% at T1, rest at T2</div>
-                      </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                    # 2-tranche buy plan
-                    t1_price  = q['LTP ₹']
-                    t2_price  = round(q['Stop loss'] * 1.01, 2)  # just above stop loss
-                    lot       = q['Lot']
-                    t1_shares = round(lot * 0.60)                 # 60% first
-                    t2_shares = lot - t1_shares                   # 40% second
-                    t1_cost   = round(t1_price * t1_shares, 2)
-                    t2_cost   = round(t2_price * t2_shares, 2)
-                    avg_price = round((t1_cost+t2_cost)/(t1_shares+t2_shares), 2)
-                    total_cost= round(t1_cost+t2_cost, 2)
-
-                    st.markdown(f"""
-                    <div style="background:#FAFAF8;border:0.5px solid #E0DED8;border-radius:10px;
-                                padding:14px 18px;margin:10px 0">
-                      <div style="font-size:11px;font-weight:600;color:#6B6B68;text-transform:uppercase;
-                                  letter-spacing:.05em;margin-bottom:6px">
-                        📦 2-Tranche Buy Plan — 1 Lot ({lot:,} shares)
-                      </div>
-                      <div style="font-size:12px;color:#D98A1A;margin-bottom:12px;font-weight:500">
-                        ⚡ If stock shoots up after Tranche 1 — sell at target, skip Tranche 2 completely.
-                      </div>
-                      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-                        <div style="background:#E6F1FB;border-radius:8px;padding:12px 14px">
-                          <div style="font-size:10px;color:#0C447C;font-weight:600;text-transform:uppercase;margin-bottom:4px">
-                            Tranche 1 · 60%
-                          </div>
-                          <div style="font-size:18px;font-weight:700;color:#185FA5">₹{t1_price:.2f}</div>
-                          <div style="font-size:12px;color:#444;margin-top:3px">{t1_shares:,} shares</div>
-                          <div style="font-size:11px;color:#888;margin-top:2px">₹{t1_cost:,.0f} capital</div>
-                          <div style="font-size:11px;color:#185FA5;margin-top:6px;font-weight:500">
-                            ✅ Always enter on trigger candle
-                          </div>
-                        </div>
-                        <div style="background:#FFF9DB;border-radius:8px;padding:12px 14px">
-                          <div style="font-size:10px;color:#7A5C00;font-weight:600;text-transform:uppercase;margin-bottom:4px">
-                            Tranche 2 · 40%
-                          </div>
-                          <div style="font-size:18px;font-weight:700;color:#D98A1A">₹{t2_price:.2f}</div>
-                          <div style="font-size:12px;color:#444;margin-top:3px">{t2_shares:,} shares</div>
-                          <div style="font-size:11px;color:#888;margin-top:2px">₹{t2_cost:,.0f} capital</div>
-                          <div style="font-size:11px;color:#D98A1A;margin-top:6px;font-weight:500">
-                            ⏳ Only if price dips near stop loss zone
-                          </div>
-                        </div>
-                      </div>
-                      <div style="display:flex;gap:20px;font-size:12px;flex-wrap:wrap;
-                                  padding-top:10px;border-top:0.5px solid #E0DED8">
-                        <span>📊 <strong>Avg cost (both):</strong> ₹{avg_price:.2f}</span>
-                        <span>💰 <strong>Max capital:</strong> ₹{total_cost:,.0f}</span>
-                        <span>🎯 <strong>Target on avg:</strong> ₹{round(avg_price*1.08,2):.2f} (+8%)</span>
-                        <span>🛑 <strong>Stop loss:</strong> ₹{q['Stop loss']:.2f}</span>
-                      </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                    st.markdown(f"""
-                    <div style="background:#E6F1FB;border:0.5px solid #85B7EB;border-radius:8px;
-                                padding:12px 16px;margin-bottom:20px;font-size:13px">
-                      💡 <strong>Covered call plan:</strong> Sell call only after all 3 tranches are filled
-                      → Use <strong>₹{q['CC Strike']} strike</strong> (monthly expiry, 20–30 DTE)
-                      → Premium collected reduces your average cost further.
-                      &nbsp;|&nbsp; 52W High: ₹{q['52W High']:.2f} &nbsp;|&nbsp; Lot: {lot:,} shares
-                    </div>
-                    """, unsafe_allow_html=True)
-                    st.divider()
-
-                # Download
-                df_q = pd.DataFrame(qualifiers)
-                st.download_button("⬇ Download setups CSV",
-                                   df_q.to_csv(index=False),
-                                   "swing_covered_setups.csv","text/csv")
+            # Download
+            df_q = pd.DataFrame(qualifiers)
+            st.download_button("⬇ Download setups CSV",
+                               df_q.to_csv(index=False),
+                               "swing_covered_setups.csv","text/csv")
 
 
 with tab3:

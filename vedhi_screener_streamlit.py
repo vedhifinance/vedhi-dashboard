@@ -211,13 +211,14 @@ def fetch_stock(symbol):
         ema_ok   = min(ema20,ema50) <= ltp <= max(ema20,ema50)
         bull     = ema20 > ema50
         macd_bull= float(hist.iloc[-1]) >= 0
-        # Signal logic
-        green = sum([ema_ok, bull, macd_bull])
-        vol_ok= vol_ratio >= 1.2
-        if green == 3 and vol_ok:   signal = "🟢 Strong Buy"
-        elif green == 3:            signal = "🟡 Watch (low vol)"
-        elif green == 2 and vol_ok: signal = "🟡 Watch"
-        else:                       signal = "🔴 Avoid"
+        # Signal logic — Trend + RSI + Volume are the primary drivers
+        rsi_ok   = 30 <= rsi <= 50
+        vol_ok   = vol_ratio >= 1.2
+        if bull and rsi_ok and vol_ok:    signal = "🟢 Strong Buy"
+        elif bull and rsi_ok:             signal = "🟡 Watch (low vol)"
+        elif bull and vol_ok and ema_ok:  signal = "🟡 Watch"
+        elif bull:                        signal = "🟡 Weak"
+        else:                             signal = "🔴 Avoid"
         return {
             "LTP":round(ltp,2), "Chg%":round((ltp-prev)/prev*100,2),
             "RSI":round(float(rsi),1), "EMA 20":round(float(ema20),2),
@@ -311,6 +312,7 @@ if run:
                 if col == "Signal":
                     if "Strong Buy" in str(val): return "background:#1D9E75;color:white;font-weight:700"
                     if "Watch" in str(val):      return "background:#F5C842;color:#1A1A18;font-weight:600"
+                    if "Weak" in str(val):       return "color:#D98A1A;font-weight:500"
                     if "Avoid" in str(val):      return "background:#E24B4A;color:white;font-weight:700"
                 return ""
 

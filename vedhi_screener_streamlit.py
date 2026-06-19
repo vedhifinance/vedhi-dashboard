@@ -1459,45 +1459,40 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
             pm4.metric("Combined P&L",    f"₹{total_combined:+,.0f}", f"{total_combined/total_invested*100:+.1f}%" if total_invested else "—")
             st.divider()
 
-        # ── Add new position ──────────────────────────────────────────────────────
-        st.markdown("**➕ Add / Update position**")
-        symbols_list = list(NIFTY50.keys())
-
-        with st.form("sc_add_position", clear_on_submit=True):
-            ap1,ap2,ap3,ap4 = st.columns(4)
-            with ap1: ap_sym    = st.selectbox("Stock", symbols_list)
-            with ap2: ap_shares = st.number_input("Shares bought", min_value=1, step=1, value=100)
-            with ap3: ap_price  = st.number_input("Buy price (₹)", min_value=0.01, step=0.05, format="%.2f")
-            with ap4: ap_date   = st.date_input("Buy date")
-            ap_notes = st.text_input("Notes (optional)", placeholder="e.g. Tranche 1 entry")
-            ap_submit = st.form_submit_button("💾 Save buy", type="primary", use_container_width=True)
-
-            if ap_submit and ap_price > 0 and ap_shares > 0:
-                # Find existing position for this stock or create new
-                existing = next((p for p in positions if p["symbol"]==ap_sym), None)
-                new_buy  = {"shares":int(ap_shares), "price":float(ap_price),
-                            "date":str(ap_date), "notes":ap_notes}
-                if existing:
-                    existing["buys"].append(new_buy)
-                else:
-                    lot_size = NIFTY50[ap_sym]["lot"]
-                    positions.append({
-                        "id":        len(positions)+1,
-                        "symbol":    ap_sym,
-                        "sector":    NIFTY50[ap_sym]["sector"],
-                        "lot_size":  lot_size,
-                        "buys":      [new_buy],
-                        "cc_cycles": [],
-                    })
-                sc_db["positions"] = positions
-                if sc_save(sc_db):
-                    st.success(f"✓ {int(ap_shares)} shares of {ap_sym} @ ₹{ap_price:.2f} saved!")
-                    st.session_state["sc_reload"] = True
-                    st.rerun()
+        # ── Add new Nifty 50 stock for covered call tracking ─────────────────────
+        st.markdown("**➕ Add stock for covered call tracking**")
+        with st.form("sc_add_cc_stock", clear_on_submit=True):
+            n1,n2,n3,n4 = st.columns(4)
+            with n1: n_sym    = st.selectbox("Stock (any Nifty 50)", list(NIFTY50.keys()), key="cc_sym")
+            with n2: n_shares = st.number_input("Shares held", min_value=1, step=1, key="cc_sh")
+            with n3: n_price  = st.number_input("Avg buy price (₹)", min_value=0.01, step=0.05, format="%.2f", key="cc_bp")
+            with n4: n_date   = st.date_input("Buy date", key="cc_bd")
+            n_notes = st.text_input("Notes (optional)", key="cc_notes")
+            if st.form_submit_button("➕ Add to tracker", type="primary", use_container_width=True):
+                if n_shares > 0 and n_price > 0:
+                    existing = next((p for p in positions if p["symbol"]==n_sym), None)
+                    new_buy  = {"shares":int(n_shares),"price":float(n_price),
+                                "date":str(n_date),"notes":n_notes}
+                    if existing:
+                        existing["buys"].append(new_buy)
+                    else:
+                        positions.append({
+                            "id":       len(positions)+1,
+                            "symbol":   n_sym,
+                            "sector":   NIFTY50[n_sym]["sector"],
+                            "lot_size": NIFTY50[n_sym]["lot"],
+                            "buys":     [new_buy],
+                            "cc_cycles":[],
+                        })
+                    sc_db["positions"] = positions
+                    if sc_save(sc_db):
+                        st.success(f"✓ {n_sym} added to covered call tracker!")
+                        st.session_state["sc_reload"] = True
+                        st.rerun()
 
         # ── Position cards ────────────────────────────────────────────────────────
         if not positions:
-            st.info("No positions yet. Add your first buy above.")
+            st.info("No stocks in tracker yet. Add any Nifty 50 stock above.")
         else:
             st.divider()
             st.markdown("**📊 Current positions**")
@@ -1666,14 +1661,24 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
                     with cc1: cc_strike  = st.number_input("Strike (₹)", min_value=0.0, step=0.5, format="%.2f", key=f"ccs_{sym}")
                     with cc2: cc_prem    = st.number_input("Premium/share (₹)", min_value=0.0, step=0.05, format="%.2f", key=f"ccp_{sym}")
                     with cc3: cc_expiry  = st.date_input("Expiry date", key=f"cce_{sym}")
-                    with cc4: cc_outcome = st.selectbox("Outcome", ["Option expired","Called away"], key=f"cco_{sym}")
-                    cc_notes = st.text_input("Notes (optional)", key=f"ccn_{sym}")
+                    with cc4: cc_outcome = st.selectbox("Outcome", [
+                        "Option expired — kept shares",
+                        "Called away at strike",
+                        "🔄 Rolled over to next month",
+                    ], key=f"cco_{sym}")
+                    cc5,cc6 = st.columns(2)
+                    with cc5: cc_notes = st.text_input("Notes (optional)", key=f"ccn_{sym}")
+                    # Roll over fields — shown always, used only when outcome is roll
+                    with cc6: cc_roll_strike = st.number_input("New strike if rolled (₹)", min_value=0.0, step=0.5, format="%.2f", key=f"ccrs_{sym}", help="Fill only if rolling over")
+                    cc_roll_prem   = st.number_input("New premium if rolled (₹/share)", min_value=0.0, step=0.05, format="%.2f", key=f"ccrp_{sym}", help="Fill only if rolling over")
+                    cc_roll_expiry = st.date_input("New expiry if rolled", key=f"ccre_{sym}", help="Fill only if rolling over")
+
                     if st.form_submit_button("💾 Save cycle", type="primary", use_container_width=True):
                         if cc_prem > 0:
                             prem_income = round(cc_prem * total_shares, 2)
                             if "cc_cycles" not in pos:
                                 pos["cc_cycles"] = []
-                            pos["cc_cycles"].append({
+                            cycle = {
                                 "id":             len(pos.get("cc_cycles",[]))+1,
                                 "strike":         float(cc_strike),
                                 "premium":        float(cc_prem),
@@ -1682,12 +1687,38 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
                                 "shares":         total_shares,
                                 "premium_income": prem_income,
                                 "notes":          cc_notes,
-                            })
-                            sc_db["positions"] = positions
-                            if sc_save(sc_db):
-                                st.success(f"✓ Saved! Income: ₹{prem_income:,.2f}")
-                                st.session_state["sc_reload"] = True
-                                st.rerun()
+                            }
+                            # If rolled — add roll details and create next cycle automatically
+                            if "Rolled" in cc_outcome and cc_roll_prem > 0:
+                                cycle["rolled_to_strike"]  = float(cc_roll_strike)
+                                cycle["rolled_to_expiry"]  = str(cc_roll_expiry)
+                                cycle["rolled_to_premium"] = float(cc_roll_prem)
+                                # Auto-add next cycle for the roll
+                                roll_income = round(cc_roll_prem * total_shares, 2)
+                                pos["cc_cycles"].append(cycle)
+                                pos["cc_cycles"].append({
+                                    "id":             len(pos["cc_cycles"])+1,
+                                    "strike":         float(cc_roll_strike),
+                                    "premium":        float(cc_roll_prem),
+                                    "expiry":         str(cc_roll_expiry),
+                                    "outcome":        "Pending",
+                                    "shares":         total_shares,
+                                    "premium_income": roll_income,
+                                    "notes":          f"Rolled from {cc_expiry}",
+                                })
+                                total_saved = prem_income + roll_income
+                                sc_db["positions"] = positions
+                                if sc_save(sc_db):
+                                    st.success(f"✓ Roll saved! Original: ₹{prem_income:,.2f} + New: ₹{roll_income:,.2f} = ₹{total_saved:,.2f} total")
+                                    st.session_state["sc_reload"] = True
+                                    st.rerun()
+                            else:
+                                pos["cc_cycles"].append(cycle)
+                                sc_db["positions"] = positions
+                                if sc_save(sc_db):
+                                    st.success(f"✓ Saved! Income: ₹{prem_income:,.2f}")
+                                    st.session_state["sc_reload"] = True
+                                    st.rerun()
 
                 # Delete position
                 if st.button(f"🗑️ Remove {sym} position", key=f"del_{sym}"):

@@ -12,6 +12,19 @@
           "notes": ""
         }
       ]
+    },
+    {
+      "id": 2,
+      "symbol": "NTPC",
+      "sector": "PSU Power",
+      "buys": [
+        {
+          "qty": 589,
+          "price": 353.11,
+          "date": "2026-06-12",
+          "notes": ""
+        }
+      ]
     }
   ],
   "sold": []

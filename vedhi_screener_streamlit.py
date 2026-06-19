@@ -1267,403 +1267,566 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
 
     sc_db     = st.session_state["sc_data"]
     positions = sc_db.get("positions", [])
+    sc_holdings = sc_db.get("sc_holdings", [])
+    sc_sold     = sc_db.get("sc_sold", [])
 
-    # ── Portfolio summary ─────────────────────────────────────────────────────
-    if positions:
-        total_invested = 0
-        total_current  = 0
-        total_premium  = 0
-        for pos in positions:
-            buys = pos.get("buys", [])
-            total_shares = sum(b["shares"] for b in buys)
-            avg_cost     = sum(b["shares"]*b["price"] for b in buys)/total_shares if total_shares else 0
-            live         = get_live_price(pos["symbol"])
-            ltp          = live["ltp"] if live else avg_cost
-            invested     = round(avg_cost * total_shares, 2)
-            current      = round(ltp * total_shares, 2)
-            prem         = sum(c.get("premium_income",0) for c in pos.get("cc_cycles",[]))
-            total_invested += invested
-            total_current  += current
-            total_premium  += prem
+    # ── Sub tabs ──────────────────────────────────────────────────────────────
+    sc_tab1, sc_tab2, sc_tab3, sc_tab4 = st.tabs([
+        "📂 Open Holdings",
+        "💸 Sell a Stock",
+        "📋 Sold History",
+        "📊 Covered Call Tracker",
+    ])
 
-        total_stock_pnl  = round(total_current - total_invested, 2)
-        total_combined   = round(total_stock_pnl + total_premium, 2)
+    # ════════════════════════════════════════════════════════════════
+    # SUB TAB 1 — Open Holdings
+    # ════════════════════════════════════════════════════════════════
+    with sc_tab1:
+        st.markdown("**➕ Add holding**")
+        with st.form("sc_holding_add", clear_on_submit=True):
+            h1,h2,h3,h4 = st.columns(4)
+            with h1: sh_sym   = st.selectbox("Stock", list(NIFTY50.keys()), key="sc_sym")
+            with h2: sh_qty   = st.number_input("Quantity", min_value=1, step=1, key="sc_qty")
+            with h3: sh_price = st.number_input("Buy price (₹)", min_value=0.01, step=0.05, format="%.2f", key="sc_bp")
+            with h4: sh_date  = st.date_input("Buy date", key="sc_date")
+            sh_notes = st.text_input("Notes (optional)", key="sc_notes")
+            if st.form_submit_button("Add holding", type="primary", use_container_width=True):
+                if sh_qty > 0 and sh_price > 0:
+                    sc_holdings.append({
+                        "id": len(sc_holdings)+1,
+                        "symbol": sh_sym,
+                        "sector": NIFTY50[sh_sym]["sector"],
+                        "qty": int(sh_qty),
+                        "buy_price": float(sh_price),
+                        "buy_date": str(sh_date),
+                        "notes": sh_notes,
+                    })
+                    sc_db["sc_holdings"] = sc_holdings
+                    if sc_save(sc_db):
+                        st.success(f"✓ {int(sh_qty)} shares of {sh_sym} @ ₹{sh_price:.2f} added!")
+                        st.session_state["sc_reload"] = True
+                        st.rerun()
 
-        pm1,pm2,pm3,pm4 = st.columns(4)
-        pm1.metric("Total invested",  f"₹{total_invested:,.0f}", f"{len(positions)} positions")
-        pm2.metric("Stock P&L",       f"₹{total_stock_pnl:+,.0f}", f"{total_stock_pnl/total_invested*100:+.1f}%" if total_invested else "—")
-        pm3.metric("Premium earned",  f"₹{total_premium:,.0f}", "all cycles")
-        pm4.metric("Combined P&L",    f"₹{total_combined:+,.0f}", f"{total_combined/total_invested*100:+.1f}%" if total_invested else "—")
         st.divider()
+        if not sc_holdings:
+            st.info("No open holdings yet. Add your first trade above.")
+        else:
+            st.markdown("**📂 Current open holdings**")
+            from collections import defaultdict as _dd
+            grouped = _dd(list)
+            for h in sc_holdings: grouped[h["symbol"]].append(h)
 
-    # ── Add new position ──────────────────────────────────────────────────────
-    st.markdown("**➕ Add / Update position**")
-    symbols_list = list(NIFTY50.keys())
+            rows = []
+            for sym, buys in grouped.items():
+                tq   = sum(b["qty"] for b in buys)
+                ac   = sum(b["qty"]*b["buy_price"] for b in buys)/tq
+                fd   = min(b["buy_date"] for b in buys)
+                hd   = (date.today()-date.fromisoformat(fd)).days
+                live = get_live_price(sym)
+                ltp  = live["ltp"] if live else ac
+                inv  = round(ac*tq,2); cv=round(ltp*tq,2)
+                up   = round(cv-inv,2); pp=round(up/inv*100,2) if inv else 0
+                rows.append({"Ticker":sym,"Buy Date":fd,"Days":hd,"Qty":tq,
+                             "Avg ₹":round(ac,2),"Live ₹":ltp if live else "—",
+                             "Invested ₹":f"₹{inv:,.0f}",
+                             "Curr Value ₹":f"₹{cv:,.0f}" if live else "—",
+                             "Unreal P&L":f"₹{up:+,.0f}" if live else "—",
+                             "P&L %":f"{pp:+.1f}%" if live else "—",
+                             "_sym":sym,"_ac":ac,"_tq":tq})
 
-    with st.form("sc_add_position", clear_on_submit=True):
-        ap1,ap2,ap3,ap4 = st.columns(4)
-        with ap1: ap_sym    = st.selectbox("Stock", symbols_list)
-        with ap2: ap_shares = st.number_input("Shares bought", min_value=1, step=1, value=100)
-        with ap3: ap_price  = st.number_input("Buy price (₹)", min_value=0.01, step=0.05, format="%.2f")
-        with ap4: ap_date   = st.date_input("Buy date")
-        ap_notes = st.text_input("Notes (optional)", placeholder="e.g. Tranche 1 entry")
-        ap_submit = st.form_submit_button("💾 Save buy", type="primary", use_container_width=True)
+            col_show=["Ticker","Buy Date","Days","Qty","Avg ₹","Live ₹",
+                      "Invested ₹","Curr Value ₹","Unreal P&L","P&L %"]
+            hdr="".join(f'<th style="background:#1A1A18;color:white;font-size:11px;font-weight:600;padding:9px 12px;text-align:left;white-space:nowrap;border-right:0.5px solid #444">{c}</th>' for c in col_show)
+            bdy=""
+            for i,r in enumerate(rows):
+                bg="#fff" if i%2==0 else "#FAFAF8"; bdy+=f'<tr style="background:{bg}">'
+                for c in col_show:
+                    v=r[c]; s="padding:9px 12px;font-size:13px;border-right:0.5px solid #E0DED8;border-bottom:0.5px solid #E0DED8;white-space:nowrap;"
+                    if c=="Ticker": s+="background:#1A1A18;color:white;font-weight:600;"
+                    elif c in ["Unreal P&L","P&L %"]: s+=f"color:{'#1D9E75' if '+' in str(v) else '#E24B4A'};font-weight:600;"
+                    bdy+=f'<td style="{s}">{v}</td>'
+                bdy+="</tr>"
+            st.markdown(f'<div style="overflow-x:auto;border:0.5px solid #E0DED8;border-radius:8px;overflow:hidden"><table style="width:100%;border-collapse:collapse;font-family:system-ui,sans-serif"><thead><tr>{hdr}</tr></thead><tbody>{bdy}</tbody></table></div>', unsafe_allow_html=True)
 
-        if ap_submit and ap_price > 0 and ap_shares > 0:
-            # Find existing position for this stock or create new
-            existing = next((p for p in positions if p["symbol"]==ap_sym), None)
-            new_buy  = {"shares":int(ap_shares), "price":float(ap_price),
-                        "date":str(ap_date), "notes":ap_notes}
-            if existing:
-                existing["buys"].append(new_buy)
-            else:
-                lot_size = NIFTY50[ap_sym]["lot"]
-                positions.append({
-                    "id":        len(positions)+1,
-                    "symbol":    ap_sym,
-                    "sector":    NIFTY50[ap_sym]["sector"],
-                    "lot_size":  lot_size,
-                    "buys":      [new_buy],
-                    "cc_cycles": [],
-                })
-            sc_db["positions"] = positions
-            if sc_save(sc_db):
-                st.success(f"✓ {int(ap_shares)} shares of {ap_sym} @ ₹{ap_price:.2f} saved!")
-                st.session_state["sc_reload"] = True
-                st.rerun()
+            st.markdown("")
+            ti=sum(r["_ac"]*r["_tq"] for r in rows)
+            tc=sum((get_live_price(r["_sym"])["ltp"] if get_live_price(r["_sym"]) else r["_ac"])*r["_tq"] for r in rows)
+            tp=round(tc-ti,2); tpp=round(tp/ti*100,2) if ti else 0
+            pm1,pm2,pm3,pm4=st.columns(4)
+            pm1.metric("Open positions",f"{len(rows)}")
+            pm2.metric("Total invested",f"₹{ti:,.0f}")
+            pm3.metric("Current value", f"₹{tc:,.0f}")
+            pm4.metric("Unrealised P&L",f"₹{tp:+,.0f}",f"{tpp:+.1f}%")
 
-    # ── Position cards ────────────────────────────────────────────────────────
-    if not positions:
-        st.info("No positions yet. Add your first buy above.")
-    else:
-        st.divider()
-        st.markdown("**📊 Current positions**")
-
-        for pos in positions:
-            sym      = pos["symbol"]
-            sector   = pos["sector"]
-            lot_size = pos["lot_size"]
-            buys     = pos.get("buys", [])
-            cc_cycles= pos.get("cc_cycles", [])
-
-            total_shares = sum(b["shares"] for b in buys)
-            avg_cost     = sum(b["shares"]*b["price"] for b in buys)/total_shares if total_shares else 0
-            invested     = round(avg_cost * total_shares, 2)
-            pct_to_lot   = min(100, round(total_shares/lot_size*100, 1))
-            remaining    = max(0, lot_size - total_shares)
-            total_prem   = sum(c.get("premium_income",0) for c in cc_cycles)
-
-            live  = get_live_price(sym)
-            ltp   = live["ltp"] if live else avg_cost
-            ltp_ok= live is not None
-            current     = round(ltp * total_shares, 2)
-            stock_pnl   = round(current - invested, 2)
-            combined    = round(stock_pnl + total_prem, 2)
-            pnl_pct     = round(stock_pnl/invested*100, 2) if invested else 0
-            chg_txt     = f"{live['chg']:+.2f} ({live['chgp']:+.2f}%)" if ltp_ok else "—"
-
-            sc_col = "#1D9E75" if stock_pnl>=0 else "#E24B4A"
-
-            st.markdown(f"""
-            <div style="background:#F2FBF6;border:1.5px solid #1D9E75;border-radius:12px;
-                        padding:16px 20px;margin-bottom:8px">
-              <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-                <div>
-                  <span style="background:#1A1A18;color:white;font-weight:700;font-size:16px;
-                               padding:4px 14px;border-radius:6px">{sym}</span>
-                  <span style="background:#EFEFEC;color:#555;font-size:11px;font-weight:500;
-                               padding:3px 10px;border-radius:10px;margin-left:8px">{sector}</span>
-                </div>
-                <div style="text-align:right">
-                  <div style="font-size:22px;font-weight:700">₹{ltp:.2f}</div>
-                  <div style="font-size:12px;color:{'#1D9E75' if ltp_ok and live['chg']>=0 else '#E24B4A'}">{chg_txt}</div>
-                </div>
-              </div>
-            </div>
-            """, unsafe_allow_html=True)
-
-            # Metrics row
-            mc1,mc2,mc3,mc4,mc5,mc6 = st.columns(6)
-            mc1.metric("Shares held",    f"{total_shares:,}",    f"of {lot_size:,} (1 lot)")
-            mc2.metric("Avg cost",       f"₹{avg_cost:.2f}")
-            mc3.metric("Invested",       f"₹{invested:,.0f}")
-            mc4.metric("Stock P&L",      f"₹{stock_pnl:+,.0f}",  f"{pnl_pct:+.1f}%")
-            mc5.metric("Premium earned", f"₹{total_prem:,.0f}",  f"{len(cc_cycles)} cycles")
-            mc6.metric("Combined P&L",   f"₹{combined:+,.0f}")
-
-            # Progress to full lot
-            st.markdown(f"""
-            <div style="margin:10px 0 4px;display:flex;justify-content:space-between;font-size:12px;color:#6B6B68">
-              <span>Progress to 1 lot ({lot_size:,} shares)</span>
-              <span>{total_shares:,} / {lot_size:,} shares &nbsp;·&nbsp; {remaining:,} remaining</span>
-            </div>
-            <div style="height:8px;background:#EFEFEC;border-radius:4px;overflow:hidden;margin-bottom:4px">
-              <div style="height:8px;background:{'#1D9E75' if pct_to_lot==100 else '#185FA5'};
-                          border-radius:4px;width:{pct_to_lot}%"></div>
-            </div>
-            <div style="font-size:11px;color:#888;margin-bottom:10px">
-              {'✅ Full lot complete — ready to sell covered call!' if pct_to_lot==100 else f'{pct_to_lot}% of lot filled'}
-            </div>
-            """, unsafe_allow_html=True)
-
-            # Buy history
-            with st.expander(f"📋 {sym} — buy history ({len(buys)} entries)"):
-                bh_rows = [{"Date":b["date"],"Shares":b["shares"],
-                            "Price ₹":f"₹{b['price']:.2f}",
-                            "Value ₹":f"₹{b['shares']*b['price']:,.0f}",
-                            "Notes":b.get("notes","—")} for b in buys]
-                st.dataframe(pd.DataFrame(bh_rows), use_container_width=True, hide_index=True)
-
-            # ── Sell shares from this position ────────────────────────────────
-            with st.expander(f"💸 {sym} — sell shares"):
-                with st.form(f"sell_form_{sym}", clear_on_submit=True):
-                    sell_c1, sell_c2, sell_c3 = st.columns(3)
-                    with sell_c1:
-                        sell_qty   = st.number_input("Qty to sell", min_value=1,
-                                                      max_value=total_shares, step=1,
-                                                      key=f"sq_{sym}")
-                    with sell_c2:
-                        sell_price = st.number_input("Sell price (₹)", min_value=0.01,
-                                                      step=0.05, format="%.2f", key=f"sp_{sym}")
-                    with sell_c3:
-                        sell_date  = st.date_input("Sell date", key=f"sd_{sym}")
-                    sell_notes = st.text_input("Notes (optional)", key=f"sn_{sym}")
-                    sell_submit= st.form_submit_button("💸 Confirm sell", type="primary")
-                    if sell_submit and sell_qty > 0 and sell_price > 0:
-                        inv_sold  = round(avg_cost * int(sell_qty), 2)
-                        proceeds  = round(float(sell_price) * int(sell_qty), 2)
-                        rpnl      = round(proceeds - inv_sold, 2)
-                        rpnl_pct  = round(rpnl/inv_sold*100,2) if inv_sold else 0
-                        # Reload fresh data, apply sell, save
-                        fresh = sc_load()
-                        fresh_pos = fresh.get("positions", [])
-                        target = next((p for p in fresh_pos if p["symbol"]==sym), None)
-                        if target:
-                            rem = int(sell_qty)
-                            for b in target["buys"]:
-                                if rem <= 0: break
-                                ded = min(b["shares"], rem)
-                                b["shares"] -= ded
-                                rem -= ded
-                            target["buys"] = [b for b in target["buys"] if b["shares"] > 0]
-                            if not target["buys"]:
-                                fresh["positions"] = [p for p in fresh_pos if p["symbol"] != sym]
-                            else:
-                                fresh["positions"] = fresh_pos
-                            if sc_save(fresh):
-                                emoji = "🟢" if rpnl >= 0 else "🔴"
-                                st.success(f"{emoji} Sold {int(sell_qty)} {sym} @ ₹{sell_price:.2f} · P&L: ₹{rpnl:+,.0f} ({rpnl_pct:+.1f}%)")
-                                st.session_state["sc_reload"] = True
-                                st.rerun()
-
-            # Log covered call cycle
-            with st.expander(f"💰 {sym} — log a covered call cycle"):
-                with st.form(f"cc_form_{sym}", clear_on_submit=True):
-                    cc1,cc2,cc3,cc4 = st.columns(4)
-                    with cc1: cc_strike  = st.number_input("Strike (₹)", min_value=0.0, step=0.5, format="%.2f", key=f"ccs_{sym}")
-                    with cc2: cc_prem    = st.number_input("Premium/share (₹)", min_value=0.0, step=0.05, format="%.2f", key=f"ccp_{sym}")
-                    with cc3: cc_expiry  = st.date_input("Expiry date", key=f"cce_{sym}")
-                    with cc4: cc_outcome = st.selectbox("Outcome", ["Option expired","Called away"], key=f"cco_{sym}")
-                    cc_submit = st.form_submit_button("💾 Save cycle", type="primary")
-                    if cc_submit and cc_prem > 0:
-                        prem_income = round(cc_prem * total_shares, 2)
-                        pos["cc_cycles"].append({
-                            "strike":cc_strike, "premium":float(cc_prem),
-                            "expiry":str(cc_expiry), "outcome":cc_outcome,
-                            "shares":total_shares, "premium_income":prem_income
-                        })
-                        sc_db["positions"] = positions
+    # ════════════════════════════════════════════════════════════════
+    # SUB TAB 2 — Sell a Stock
+    # ════════════════════════════════════════════════════════════════
+    with sc_tab2:
+        st.markdown("**💸 Sell a stock**")
+        open_syms = list({h["symbol"] for h in sc_holdings})
+        if not open_syms:
+            st.info("No open holdings to sell.")
+        else:
+            with st.form("sc_sell_form", clear_on_submit=True):
+                s1,s2,s3,s4=st.columns(4)
+                with s1: ss=st.selectbox("Stock to sell", sorted(open_syms), key="sc_sell_sym")
+                with s2: sq=st.number_input("Qty to sell", min_value=1, step=1, key="sc_sell_qty")
+                with s3: sp=st.number_input("Sell price (₹)", min_value=0.01, step=0.05, format="%.2f", key="sc_sell_price")
+                with s4: sd=st.date_input("Sell date", key="sc_sell_date")
+                sn=st.text_input("Notes (optional)", key="sc_sell_notes")
+                if st.form_submit_button("💸 Confirm sell", type="primary", use_container_width=True):
+                    buys  = [h for h in sc_holdings if h["symbol"]==ss]
+                    total = sum(b["qty"] for b in buys)
+                    if int(sq) > total:
+                        st.error(f"You only hold {total} shares of {ss}.")
+                    else:
+                        ac    = sum(b["qty"]*b["buy_price"] for b in buys)/total
+                        inv   = round(ac*int(sq),2); proc=round(float(sp)*int(sq),2)
+                        rpnl  = round(proc-inv,2); pp=round(rpnl/inv*100,2) if inv else 0
+                        fd    = min(b["buy_date"] for b in buys)
+                        hd    = (date.fromisoformat(str(sd))-date.fromisoformat(fd)).days
+                        sc_sold.append({"id":len(sc_sold)+1,"symbol":ss,
+                                        "sector":NIFTY50[ss]["sector"],"qty":int(sq),
+                                        "avg_cost":round(ac,2),"sell_price":float(sp),
+                                        "buy_date":fd,"sell_date":str(sd),"hold_days":hd,
+                                        "invested":inv,"proceeds":proc,
+                                        "realised_pnl":rpnl,"pnl_pct":pp,"notes":sn})
+                        rem = int(sq)
+                        for h in sc_holdings:
+                            if h["symbol"]!=ss or rem<=0: continue
+                            ded=min(h["qty"],rem); h["qty"]-=ded; rem-=ded
+                        sc_db["sc_holdings"]=[h for h in sc_holdings if h["qty"]>0]
+                        sc_db["sc_sold"]=sc_sold
                         if sc_save(sc_db):
-                            st.success(f"✓ Cycle saved! Income: ₹{prem_income:,.2f}")
-                            st.session_state["sc_reload"] = True
-                            st.rerun()
+                            emoji="🟢" if rpnl>=0 else "🔴"
+                            st.success(f"{emoji} Sold {int(sq)} {ss} @ ₹{sp:.2f} · P&L: ₹{rpnl:+,.0f} ({pp:+.1f}%)")
+                            st.session_state["sc_reload"]=True; st.rerun()
 
-            # Delete position
-            if st.button(f"🗑️ Remove {sym} position", key=f"del_{sym}"):
-                sc_db["positions"] = [p for p in positions if p["symbol"]!=sym]
+    # ════════════════════════════════════════════════════════════════
+    # SUB TAB 3 — Sold History
+    # ════════════════════════════════════════════════════════════════
+    with sc_tab3:
+        st.markdown("**📋 Sold history**")
+        if not sc_sold:
+            st.info("No sold trades yet.")
+        else:
+            rows=[{"Ticker":s["symbol"],"Qty":s["qty"],
+                   "Avg Cost ₹":f"₹{s['avg_cost']:.2f}","Sell Price ₹":f"₹{s['sell_price']:.2f}",
+                   "Buy Date":s["buy_date"],"Sell Date":s["sell_date"],"Hold Days":s["hold_days"],
+                   "Invested ₹":f"₹{s['invested']:,.0f}","Proceeds ₹":f"₹{s['proceeds']:,.0f}",
+                   "Realised P&L":f"₹{s['realised_pnl']:+,.0f}","P&L %":f"{s['pnl_pct']:+.1f}%",
+                   "Notes":s.get("notes","—")} for s in sorted(sc_sold,key=lambda x:x["sell_date"],reverse=True)]
+            st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
+            tr=sum(s["realised_pnl"] for s in sc_sold)
+            wins=[s for s in sc_sold if s["realised_pnl"]>0]
+            r1,r2,r3,r4=st.columns(4)
+            r1.metric("Total trades",  len(sc_sold))
+            r2.metric("Total realised",f"₹{tr:+,.0f}")
+            r3.metric("Win rate",      f"{len(wins)/len(sc_sold)*100:.0f}%")
+            r4.metric("Best trade",    f"₹{max(s['realised_pnl'] for s in sc_sold):+,.0f}")
+            st.download_button("⬇ Download history",pd.DataFrame(rows).to_csv(index=False),"sc_sold_history.csv","text/csv")
+
+    # ════════════════════════════════════════════════════════════════
+    # SUB TAB 4 — Covered Call Tracker (existing functionality)
+    # ════════════════════════════════════════════════════════════════
+    with sc_tab4:
+
+        # ── Portfolio summary ─────────────────────────────────────────────────────
+        if positions:
+            total_invested = 0
+            total_current  = 0
+            total_premium  = 0
+            for pos in positions:
+                buys = pos.get("buys", [])
+                total_shares = sum(b["shares"] for b in buys)
+                avg_cost     = sum(b["shares"]*b["price"] for b in buys)/total_shares if total_shares else 0
+                live         = get_live_price(pos["symbol"])
+                ltp          = live["ltp"] if live else avg_cost
+                invested     = round(avg_cost * total_shares, 2)
+                current      = round(ltp * total_shares, 2)
+                prem         = sum(c.get("premium_income",0) for c in pos.get("cc_cycles",[]))
+                total_invested += invested
+                total_current  += current
+                total_premium  += prem
+
+            total_stock_pnl  = round(total_current - total_invested, 2)
+            total_combined   = round(total_stock_pnl + total_premium, 2)
+
+            pm1,pm2,pm3,pm4 = st.columns(4)
+            pm1.metric("Total invested",  f"₹{total_invested:,.0f}", f"{len(positions)} positions")
+            pm2.metric("Stock P&L",       f"₹{total_stock_pnl:+,.0f}", f"{total_stock_pnl/total_invested*100:+.1f}%" if total_invested else "—")
+            pm3.metric("Premium earned",  f"₹{total_premium:,.0f}", "all cycles")
+            pm4.metric("Combined P&L",    f"₹{total_combined:+,.0f}", f"{total_combined/total_invested*100:+.1f}%" if total_invested else "—")
+            st.divider()
+
+        # ── Add new position ──────────────────────────────────────────────────────
+        st.markdown("**➕ Add / Update position**")
+        symbols_list = list(NIFTY50.keys())
+
+        with st.form("sc_add_position", clear_on_submit=True):
+            ap1,ap2,ap3,ap4 = st.columns(4)
+            with ap1: ap_sym    = st.selectbox("Stock", symbols_list)
+            with ap2: ap_shares = st.number_input("Shares bought", min_value=1, step=1, value=100)
+            with ap3: ap_price  = st.number_input("Buy price (₹)", min_value=0.01, step=0.05, format="%.2f")
+            with ap4: ap_date   = st.date_input("Buy date")
+            ap_notes = st.text_input("Notes (optional)", placeholder="e.g. Tranche 1 entry")
+            ap_submit = st.form_submit_button("💾 Save buy", type="primary", use_container_width=True)
+
+            if ap_submit and ap_price > 0 and ap_shares > 0:
+                # Find existing position for this stock or create new
+                existing = next((p for p in positions if p["symbol"]==ap_sym), None)
+                new_buy  = {"shares":int(ap_shares), "price":float(ap_price),
+                            "date":str(ap_date), "notes":ap_notes}
+                if existing:
+                    existing["buys"].append(new_buy)
+                else:
+                    lot_size = NIFTY50[ap_sym]["lot"]
+                    positions.append({
+                        "id":        len(positions)+1,
+                        "symbol":    ap_sym,
+                        "sector":    NIFTY50[ap_sym]["sector"],
+                        "lot_size":  lot_size,
+                        "buys":      [new_buy],
+                        "cc_cycles": [],
+                    })
+                sc_db["positions"] = positions
                 if sc_save(sc_db):
-                    st.success(f"{sym} position removed.")
+                    st.success(f"✓ {int(ap_shares)} shares of {ap_sym} @ ₹{ap_price:.2f} saved!")
                     st.session_state["sc_reload"] = True
                     st.rerun()
 
-            st.divider()
-
-    # ── Monthly P&L Snapshot Tracker ──────────────────────────────────────────
-    st.divider()
-    st.markdown("#### 📅 Monthly P&L History")
-    st.caption("Auto-saves a snapshot on the first open of each month. Use the button to save anytime.")
-
-    this_month = pd.Timestamp.now().strftime("%Y-%m")
-
-    def save_monthly_snapshot(label="auto"):
-        """Calculate current P&L across all positions and save as monthly snapshot."""
-        fresh_db  = sc_load()
-        fresh_pos = fresh_db.get("positions", [])
-        if not fresh_pos:
-            return False
-        snap_positions = []
-        total_invested = 0
-        total_current  = 0
-        total_premium  = 0
-        for pos in fresh_pos:
-            buys         = pos.get("buys", [])
-            total_shares = sum(b["shares"] for b in buys)
-            if total_shares == 0: continue
-            avg_cost     = sum(b["shares"]*b["price"] for b in buys) / total_shares
-            live         = get_live_price(pos["symbol"])
-            ltp          = live["ltp"] if live else avg_cost
-            invested     = round(avg_cost * total_shares, 2)
-            current      = round(ltp * total_shares, 2)
-            prem         = sum(float(c.get("premium_income", 0)) for c in pos.get("cc_cycles", []))
-            stock_pnl    = round(current - invested, 2)
-            total_invested += invested
-            total_current  += current
-            total_premium  += prem
-            snap_positions.append({
-                "symbol":       pos["symbol"],
-                "shares":       total_shares,
-                "avg_cost":     round(avg_cost, 2),
-                "ltp":          round(ltp, 2),
-                "invested":     invested,
-                "current_val":  current,
-                "stock_pnl":    stock_pnl,
-                "premium":      round(prem, 2),
-                "combined_pnl": round(stock_pnl + prem, 2),
-            })
-
-        if total_invested == 0:
-            return False
-
-        snapshot = {
-            "month":         this_month,
-            "date":          pd.Timestamp.now().strftime("%Y-%m-%d"),
-            "label":         label,
-            "total_invested":round(total_invested, 2),
-            "total_current": round(total_current, 2),
-            "stock_pnl":     round(total_current - total_invested, 2),
-            "total_premium": round(total_premium, 2),
-            "combined_pnl":  round(total_current - total_invested + total_premium, 2),
-            "positions":     snap_positions,
-        }
-        snapshots = fresh_db.get("monthly_snapshots", [])
-        snapshots = [s for s in snapshots if s["month"] != this_month]
-        snapshots.append(snapshot)
-        fresh_db["monthly_snapshots"] = snapshots
-        return sc_save(fresh_db)
-
-    snapshots = sc_db.get("monthly_snapshots", [])
-
-    # Auto-save if no snapshot for this month yet
-    if positions and not any(s["month"] == this_month for s in snapshots):
-        if save_monthly_snapshot("auto"):
-            st.session_state["sc_reload"] = True
-            snapshots = sc_db.get("monthly_snapshots", [])
-
-    # Manual save button
-    col_snap, _ = st.columns([1, 3])
-    with col_snap:
-        if st.button("📸 Save this month's snapshot", type="secondary"):
-            if save_monthly_snapshot("manual"):
-                st.success(f"✓ Snapshot for {this_month} saved!")
-                st.session_state["sc_reload"] = True
-                st.rerun()
-
-    if not snapshots:
-        st.info("No monthly snapshots yet. Add positions and the first snapshot will be saved automatically.")
-    else:
-        # Sort by month
-        snapshots_sorted = sorted(snapshots, key=lambda x: x["month"])
-
-        # ── Summary chart ─────────────────────────────────────────────────────
-        import altair as alt
-        df_snap = pd.DataFrame([{
-            "Month":         s["month"],
-            "Stock P&L":     s["stock_pnl"],
-            "Premium":       s["total_premium"],
-            "Combined P&L":  s["combined_pnl"],
-            "Invested":      s["total_invested"],
-        } for s in snapshots_sorted])
-
-        # Combined P&L line + Premium bars
-        base = alt.Chart(df_snap)
-        bars = base.mark_bar(color="#185FA5", opacity=0.7,
-                             cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
-            x=alt.X("Month:O", axis=alt.Axis(labelAngle=-30)),
-            y=alt.Y("Premium:Q", title="Premium income (₹)"),
-            tooltip=["Month", alt.Tooltip("Premium:Q", format=",.0f")]
-        )
-        line = base.mark_line(
-            color="#1D9E75", strokeWidth=2.5, point=True
-        ).encode(
-            x="Month:O",
-            y=alt.Y("Combined P&L:Q", title="Combined P&L (₹)"),
-            tooltip=["Month", alt.Tooltip("Combined P&L:Q", format="+,.0f")]
-        )
-        st.altair_chart(
-            alt.layer(bars, line).resolve_scale(y="independent"),
-            use_container_width=True, theme=None
-        )
-        st.caption("🔵 Bars = monthly premium income · 🟢 Line = combined P&L (stock + premium)")
-
-        # ── Month-by-month table ──────────────────────────────────────────────
-        st.markdown("#### Month-by-month breakdown")
-        rows = []
-        for s in snapshots_sorted:
-            t_inv = float(s.get("total_invested", 0) or 0)
-            t_cur = float(s.get("total_current", 0) or 0)
-            s_pnl = float(s.get("stock_pnl", 0) or 0)
-            t_pre = float(s.get("total_premium", 0) or 0)
-            c_pnl = float(s.get("combined_pnl", 0) or 0)
-            ret   = round(c_pnl/t_inv*100,1) if t_inv else 0
-            rows.append({
-                "Month":        s["month"],
-                "Invested ₹":   f"₹{t_inv:,.0f}",
-                "Mkt Value ₹":  f"₹{t_cur:,.0f}",
-                "Stock P&L":    f"₹{s_pnl:+,.0f}",
-                "Premium ₹":    f"₹{t_pre:,.0f}",
-                "Combined P&L": f"₹{c_pnl:+,.0f}",
-                "Return %":     f"{ret:+.1f}%",
-                "Saved":        s.get("label","auto"),
-            })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-        # ── Position-level drilldown ──────────────────────────────────────────
-        st.markdown("#### Drill down by month")
-        selected_month = st.selectbox(
-            "Select month to see position breakdown",
-            options=[s["month"] for s in snapshots_sorted],
-            index=len(snapshots_sorted)-1
-        )
-        sel = next((s for s in snapshots if s["month"]==selected_month), None)
-        if sel and sel.get("positions"):
-            drill_rows = []
-            for p in sel["positions"]:
-                try:
-                    drill_rows.append({
-                        "Stock":        p.get("symbol","—"),
-                        "Shares":       p.get("shares",0),
-                        "Avg Cost ₹":   f"₹{float(p.get('avg_cost',0)):.2f}",
-                        "Price ₹":      f"₹{float(p.get('ltp',0)):.2f}",
-                        "Invested ₹":   f"₹{float(p.get('invested',0)):,.0f}",
-                        "Mkt Value ₹":  f"₹{float(p.get('current_val',0)):,.0f}",
-                        "Stock P&L":    f"₹{float(p.get('stock_pnl',0)):+,.0f}",
-                        "Premium ₹":    f"₹{float(p.get('premium',0)):,.0f}",
-                        "Combined ₹":   f"₹{float(p.get('combined_pnl',0)):+,.0f}",
-                    })
-                except: continue
-            if drill_rows:
-                st.dataframe(pd.DataFrame(drill_rows), use_container_width=True, hide_index=True)
-            else:
-                st.info("No position detail available for this month.")
+        # ── Position cards ────────────────────────────────────────────────────────
+        if not positions:
+            st.info("No positions yet. Add your first buy above.")
         else:
-            st.info("No position breakdown saved for this month. Click '📸 Save this month\\'s snapshot' to record details.")
+            st.divider()
+            st.markdown("**📊 Current positions**")
 
-        # Download full history
-        st.download_button(
-            "⬇ Download full P&L history CSV",
-            pd.DataFrame(rows).to_csv(index=False),
-            "vedhi_monthly_pnl.csv", "text/csv"
-        )
+            for pos in positions:
+                sym      = pos["symbol"]
+                sector   = pos["sector"]
+                lot_size = pos["lot_size"]
+                buys     = pos.get("buys", [])
+                cc_cycles= pos.get("cc_cycles", [])
+
+                total_shares = sum(b["shares"] for b in buys)
+                avg_cost     = sum(b["shares"]*b["price"] for b in buys)/total_shares if total_shares else 0
+                invested     = round(avg_cost * total_shares, 2)
+                pct_to_lot   = min(100, round(total_shares/lot_size*100, 1))
+                remaining    = max(0, lot_size - total_shares)
+                total_prem   = sum(c.get("premium_income",0) for c in cc_cycles)
+
+                live  = get_live_price(sym)
+                ltp   = live["ltp"] if live else avg_cost
+                ltp_ok= live is not None
+                current     = round(ltp * total_shares, 2)
+                stock_pnl   = round(current - invested, 2)
+                combined    = round(stock_pnl + total_prem, 2)
+                pnl_pct     = round(stock_pnl/invested*100, 2) if invested else 0
+                chg_txt     = f"{live['chg']:+.2f} ({live['chgp']:+.2f}%)" if ltp_ok else "—"
+
+                sc_col = "#1D9E75" if stock_pnl>=0 else "#E24B4A"
+
+                st.markdown(f"""
+                <div style="background:#F2FBF6;border:1.5px solid #1D9E75;border-radius:12px;
+                            padding:16px 20px;margin-bottom:8px">
+                  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+                    <div>
+                      <span style="background:#1A1A18;color:white;font-weight:700;font-size:16px;
+                                   padding:4px 14px;border-radius:6px">{sym}</span>
+                      <span style="background:#EFEFEC;color:#555;font-size:11px;font-weight:500;
+                                   padding:3px 10px;border-radius:10px;margin-left:8px">{sector}</span>
+                    </div>
+                    <div style="text-align:right">
+                      <div style="font-size:22px;font-weight:700">₹{ltp:.2f}</div>
+                      <div style="font-size:12px;color:{'#1D9E75' if ltp_ok and live['chg']>=0 else '#E24B4A'}">{chg_txt}</div>
+                    </div>
+                  </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Metrics row
+                mc1,mc2,mc3,mc4,mc5,mc6 = st.columns(6)
+                mc1.metric("Shares held",    f"{total_shares:,}",    f"of {lot_size:,} (1 lot)")
+                mc2.metric("Avg cost",       f"₹{avg_cost:.2f}")
+                mc3.metric("Invested",       f"₹{invested:,.0f}")
+                mc4.metric("Stock P&L",      f"₹{stock_pnl:+,.0f}",  f"{pnl_pct:+.1f}%")
+                mc5.metric("Premium earned", f"₹{total_prem:,.0f}",  f"{len(cc_cycles)} cycles")
+                mc6.metric("Combined P&L",   f"₹{combined:+,.0f}")
+
+                # Progress to full lot
+                st.markdown(f"""
+                <div style="margin:10px 0 4px;display:flex;justify-content:space-between;font-size:12px;color:#6B6B68">
+                  <span>Progress to 1 lot ({lot_size:,} shares)</span>
+                  <span>{total_shares:,} / {lot_size:,} shares &nbsp;·&nbsp; {remaining:,} remaining</span>
+                </div>
+                <div style="height:8px;background:#EFEFEC;border-radius:4px;overflow:hidden;margin-bottom:4px">
+                  <div style="height:8px;background:{'#1D9E75' if pct_to_lot==100 else '#185FA5'};
+                              border-radius:4px;width:{pct_to_lot}%"></div>
+                </div>
+                <div style="font-size:11px;color:#888;margin-bottom:10px">
+                  {'✅ Full lot complete — ready to sell covered call!' if pct_to_lot==100 else f'{pct_to_lot}% of lot filled'}
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Buy history
+                with st.expander(f"📋 {sym} — buy history ({len(buys)} entries)"):
+                    bh_rows = [{"Date":b["date"],"Shares":b["shares"],
+                                "Price ₹":f"₹{b['price']:.2f}",
+                                "Value ₹":f"₹{b['shares']*b['price']:,.0f}",
+                                "Notes":b.get("notes","—")} for b in buys]
+                    st.dataframe(pd.DataFrame(bh_rows), use_container_width=True, hide_index=True)
+
+                # ── Sell shares from this position ────────────────────────────────
+                with st.expander(f"💸 {sym} — sell shares"):
+                    with st.form(f"sell_form_{sym}", clear_on_submit=True):
+                        sell_c1, sell_c2, sell_c3 = st.columns(3)
+                        with sell_c1:
+                            sell_qty   = st.number_input("Qty to sell", min_value=1,
+                                                          max_value=total_shares, step=1,
+                                                          key=f"sq_{sym}")
+                        with sell_c2:
+                            sell_price = st.number_input("Sell price (₹)", min_value=0.01,
+                                                          step=0.05, format="%.2f", key=f"sp_{sym}")
+                        with sell_c3:
+                            sell_date  = st.date_input("Sell date", key=f"sd_{sym}")
+                        sell_notes = st.text_input("Notes (optional)", key=f"sn_{sym}")
+                        sell_submit= st.form_submit_button("💸 Confirm sell", type="primary")
+                        if sell_submit and sell_qty > 0 and sell_price > 0:
+                            inv_sold  = round(avg_cost * int(sell_qty), 2)
+                            proceeds  = round(float(sell_price) * int(sell_qty), 2)
+                            rpnl      = round(proceeds - inv_sold, 2)
+                            rpnl_pct  = round(rpnl/inv_sold*100,2) if inv_sold else 0
+                            # Reload fresh data, apply sell, save
+                            fresh = sc_load()
+                            fresh_pos = fresh.get("positions", [])
+                            target = next((p for p in fresh_pos if p["symbol"]==sym), None)
+                            if target:
+                                rem = int(sell_qty)
+                                for b in target["buys"]:
+                                    if rem <= 0: break
+                                    ded = min(b["shares"], rem)
+                                    b["shares"] -= ded
+                                    rem -= ded
+                                target["buys"] = [b for b in target["buys"] if b["shares"] > 0]
+                                if not target["buys"]:
+                                    fresh["positions"] = [p for p in fresh_pos if p["symbol"] != sym]
+                                else:
+                                    fresh["positions"] = fresh_pos
+                                if sc_save(fresh):
+                                    emoji = "🟢" if rpnl >= 0 else "🔴"
+                                    st.success(f"{emoji} Sold {int(sell_qty)} {sym} @ ₹{sell_price:.2f} · P&L: ₹{rpnl:+,.0f} ({rpnl_pct:+.1f}%)")
+                                    st.session_state["sc_reload"] = True
+                                    st.rerun()
+
+                # Log covered call cycle
+                with st.expander(f"💰 {sym} — log a covered call cycle"):
+                    with st.form(f"cc_form_{sym}", clear_on_submit=True):
+                        cc1,cc2,cc3,cc4 = st.columns(4)
+                        with cc1: cc_strike  = st.number_input("Strike (₹)", min_value=0.0, step=0.5, format="%.2f", key=f"ccs_{sym}")
+                        with cc2: cc_prem    = st.number_input("Premium/share (₹)", min_value=0.0, step=0.05, format="%.2f", key=f"ccp_{sym}")
+                        with cc3: cc_expiry  = st.date_input("Expiry date", key=f"cce_{sym}")
+                        with cc4: cc_outcome = st.selectbox("Outcome", ["Option expired","Called away"], key=f"cco_{sym}")
+                        cc_submit = st.form_submit_button("💾 Save cycle", type="primary")
+                        if cc_submit and cc_prem > 0:
+                            prem_income = round(cc_prem * total_shares, 2)
+                            pos["cc_cycles"].append({
+                                "strike":cc_strike, "premium":float(cc_prem),
+                                "expiry":str(cc_expiry), "outcome":cc_outcome,
+                                "shares":total_shares, "premium_income":prem_income
+                            })
+                            sc_db["positions"] = positions
+                            if sc_save(sc_db):
+                                st.success(f"✓ Cycle saved! Income: ₹{prem_income:,.2f}")
+                                st.session_state["sc_reload"] = True
+                                st.rerun()
+
+                # Delete position
+                if st.button(f"🗑️ Remove {sym} position", key=f"del_{sym}"):
+                    sc_db["positions"] = [p for p in positions if p["symbol"]!=sym]
+                    if sc_save(sc_db):
+                        st.success(f"{sym} position removed.")
+                        st.session_state["sc_reload"] = True
+                        st.rerun()
+
+                st.divider()
+
+        # ── Monthly P&L Snapshot Tracker ──────────────────────────────────────────
+        st.divider()
+        st.markdown("#### 📅 Monthly P&L History")
+        st.caption("Auto-saves a snapshot on the first open of each month. Use the button to save anytime.")
+
+        this_month = pd.Timestamp.now().strftime("%Y-%m")
+
+        def save_monthly_snapshot(label="auto"):
+            """Calculate current P&L across all positions and save as monthly snapshot."""
+            fresh_db  = sc_load()
+            fresh_pos = fresh_db.get("positions", [])
+            if not fresh_pos:
+                return False
+            snap_positions = []
+            total_invested = 0
+            total_current  = 0
+            total_premium  = 0
+            for pos in fresh_pos:
+                buys         = pos.get("buys", [])
+                total_shares = sum(b["shares"] for b in buys)
+                if total_shares == 0: continue
+                avg_cost     = sum(b["shares"]*b["price"] for b in buys) / total_shares
+                live         = get_live_price(pos["symbol"])
+                ltp          = live["ltp"] if live else avg_cost
+                invested     = round(avg_cost * total_shares, 2)
+                current      = round(ltp * total_shares, 2)
+                prem         = sum(float(c.get("premium_income", 0)) for c in pos.get("cc_cycles", []))
+                stock_pnl    = round(current - invested, 2)
+                total_invested += invested
+                total_current  += current
+                total_premium  += prem
+                snap_positions.append({
+                    "symbol":       pos["symbol"],
+                    "shares":       total_shares,
+                    "avg_cost":     round(avg_cost, 2),
+                    "ltp":          round(ltp, 2),
+                    "invested":     invested,
+                    "current_val":  current,
+                    "stock_pnl":    stock_pnl,
+                    "premium":      round(prem, 2),
+                    "combined_pnl": round(stock_pnl + prem, 2),
+                })
+
+            if total_invested == 0:
+                return False
+
+            snapshot = {
+                "month":         this_month,
+                "date":          pd.Timestamp.now().strftime("%Y-%m-%d"),
+                "label":         label,
+                "total_invested":round(total_invested, 2),
+                "total_current": round(total_current, 2),
+                "stock_pnl":     round(total_current - total_invested, 2),
+                "total_premium": round(total_premium, 2),
+                "combined_pnl":  round(total_current - total_invested + total_premium, 2),
+                "positions":     snap_positions,
+            }
+            snapshots = fresh_db.get("monthly_snapshots", [])
+            snapshots = [s for s in snapshots if s["month"] != this_month]
+            snapshots.append(snapshot)
+            fresh_db["monthly_snapshots"] = snapshots
+            return sc_save(fresh_db)
+
+        snapshots = sc_db.get("monthly_snapshots", [])
+
+        # Auto-save if no snapshot for this month yet
+        if positions and not any(s["month"] == this_month for s in snapshots):
+            if save_monthly_snapshot("auto"):
+                st.session_state["sc_reload"] = True
+                snapshots = sc_db.get("monthly_snapshots", [])
+
+        # Manual save button
+        col_snap, _ = st.columns([1, 3])
+        with col_snap:
+            if st.button("📸 Save this month's snapshot", type="secondary"):
+                if save_monthly_snapshot("manual"):
+                    st.success(f"✓ Snapshot for {this_month} saved!")
+                    st.session_state["sc_reload"] = True
+                    st.rerun()
+
+        if not snapshots:
+            st.info("No monthly snapshots yet. Add positions and the first snapshot will be saved automatically.")
+        else:
+            # Sort by month
+            snapshots_sorted = sorted(snapshots, key=lambda x: x["month"])
+
+            # ── Summary chart ─────────────────────────────────────────────────────
+            import altair as alt
+            df_snap = pd.DataFrame([{
+                "Month":         s["month"],
+                "Stock P&L":     s["stock_pnl"],
+                "Premium":       s["total_premium"],
+                "Combined P&L":  s["combined_pnl"],
+                "Invested":      s["total_invested"],
+            } for s in snapshots_sorted])
+
+            # Combined P&L line + Premium bars
+            base = alt.Chart(df_snap)
+            bars = base.mark_bar(color="#185FA5", opacity=0.7,
+                                 cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+                x=alt.X("Month:O", axis=alt.Axis(labelAngle=-30)),
+                y=alt.Y("Premium:Q", title="Premium income (₹)"),
+                tooltip=["Month", alt.Tooltip("Premium:Q", format=",.0f")]
+            )
+            line = base.mark_line(
+                color="#1D9E75", strokeWidth=2.5, point=True
+            ).encode(
+                x="Month:O",
+                y=alt.Y("Combined P&L:Q", title="Combined P&L (₹)"),
+                tooltip=["Month", alt.Tooltip("Combined P&L:Q", format="+,.0f")]
+            )
+            st.altair_chart(
+                alt.layer(bars, line).resolve_scale(y="independent"),
+                use_container_width=True, theme=None
+            )
+            st.caption("🔵 Bars = monthly premium income · 🟢 Line = combined P&L (stock + premium)")
+
+            # ── Month-by-month table ──────────────────────────────────────────────
+            st.markdown("#### Month-by-month breakdown")
+            rows = []
+            for s in snapshots_sorted:
+                t_inv = float(s.get("total_invested", 0) or 0)
+                t_cur = float(s.get("total_current", 0) or 0)
+                s_pnl = float(s.get("stock_pnl", 0) or 0)
+                t_pre = float(s.get("total_premium", 0) or 0)
+                c_pnl = float(s.get("combined_pnl", 0) or 0)
+                ret   = round(c_pnl/t_inv*100,1) if t_inv else 0
+                rows.append({
+                    "Month":        s["month"],
+                    "Invested ₹":   f"₹{t_inv:,.0f}",
+                    "Mkt Value ₹":  f"₹{t_cur:,.0f}",
+                    "Stock P&L":    f"₹{s_pnl:+,.0f}",
+                    "Premium ₹":    f"₹{t_pre:,.0f}",
+                    "Combined P&L": f"₹{c_pnl:+,.0f}",
+                    "Return %":     f"{ret:+.1f}%",
+                    "Saved":        s.get("label","auto"),
+                })
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+            # ── Position-level drilldown ──────────────────────────────────────────
+            st.markdown("#### Drill down by month")
+            selected_month = st.selectbox(
+                "Select month to see position breakdown",
+                options=[s["month"] for s in snapshots_sorted],
+                index=len(snapshots_sorted)-1
+            )
+            sel = next((s for s in snapshots if s["month"]==selected_month), None)
+            if sel and sel.get("positions"):
+                drill_rows = []
+                for p in sel["positions"]:
+                    try:
+                        drill_rows.append({
+                            "Stock":        p.get("symbol","—"),
+                            "Shares":       p.get("shares",0),
+                            "Avg Cost ₹":   f"₹{float(p.get('avg_cost',0)):.2f}",
+                            "Price ₹":      f"₹{float(p.get('ltp',0)):.2f}",
+                            "Invested ₹":   f"₹{float(p.get('invested',0)):,.0f}",
+                            "Mkt Value ₹":  f"₹{float(p.get('current_val',0)):,.0f}",
+                            "Stock P&L":    f"₹{float(p.get('stock_pnl',0)):+,.0f}",
+                            "Premium ₹":    f"₹{float(p.get('premium',0)):,.0f}",
+                            "Combined ₹":   f"₹{float(p.get('combined_pnl',0)):+,.0f}",
+                        })
+                    except: continue
+                if drill_rows:
+                    st.dataframe(pd.DataFrame(drill_rows), use_container_width=True, hide_index=True)
+                else:
+                    st.info("No position detail available for this month.")
+            else:
+                st.info("No position breakdown saved for this month. Click '📸 Save this month\\'s snapshot' to record details.")
+
+            # Download full history
+            st.download_button(
+                "⬇ Download full P&L history CSV",
+                pd.DataFrame(rows).to_csv(index=False),
+                "vedhi_monthly_pnl.csv", "text/csv"
+            )
 
 with tab3:
     import json, base64

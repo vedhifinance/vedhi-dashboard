@@ -1627,19 +1627,65 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
                         with cc2: cc_prem    = st.number_input("Premium/share (₹)", min_value=0.0, step=0.05, format="%.2f", key=f"ccp_{sym}")
                         with cc3: cc_expiry  = st.date_input("Expiry date", key=f"cce_{sym}")
                         with cc4: cc_outcome = st.selectbox("Outcome", ["Option expired","Called away"], key=f"cco_{sym}")
+                        cc_notes = st.text_input("Notes (optional)", key=f"ccn_{sym}")
                         cc_submit = st.form_submit_button("💾 Save cycle", type="primary")
                         if cc_submit and cc_prem > 0:
                             prem_income = round(cc_prem * total_shares, 2)
                             pos["cc_cycles"].append({
-                                "strike":cc_strike, "premium":float(cc_prem),
-                                "expiry":str(cc_expiry), "outcome":cc_outcome,
-                                "shares":total_shares, "premium_income":prem_income
+                                "id": len(pos["cc_cycles"])+1,
+                                "strike": float(cc_strike),
+                                "premium": float(cc_prem),
+                                "expiry": str(cc_expiry),
+                                "outcome": cc_outcome,
+                                "shares": total_shares,
+                                "premium_income": prem_income,
+                                "notes": cc_notes,
                             })
                             sc_db["positions"] = positions
                             if sc_save(sc_db):
                                 st.success(f"✓ Cycle saved! Income: ₹{prem_income:,.2f}")
                                 st.session_state["sc_reload"] = True
                                 st.rerun()
+
+                    # ── Cycle history table ───────────────────────────────────
+                    if cc_cycles:
+                        st.markdown(f"**{sym} — covered call history ({len(cc_cycles)} cycles)**")
+                        cyc_rows = []
+                        for idx, c in enumerate(cc_cycles, 1):
+                            cyc_rows.append({
+                                "#":              idx,
+                                "Strike ₹":      f"₹{float(c.get('strike',0)):.2f}",
+                                "Premium/sh ₹":  f"₹{float(c.get('premium',0)):.2f}",
+                                "Expiry":         c.get("expiry","—"),
+                                "Shares":         c.get("shares", total_shares),
+                                "Income ₹":       f"₹{float(c.get('premium_income',0)):,.2f}",
+                                "Outcome":        "✅ Expired" if "expired" in str(c.get("outcome","")).lower() else "🔄 Called away",
+                                "Notes":          c.get("notes","—"),
+                            })
+                        st.dataframe(pd.DataFrame(cyc_rows), use_container_width=True, hide_index=True)
+
+                        # Delete a cycle
+                        d1,d2 = st.columns([1,3])
+                        with d1:
+                            del_cyc_id = st.number_input("Delete cycle #", min_value=1,
+                                                          max_value=len(cc_cycles), step=1,
+                                                          key=f"dc_{sym}")
+                        with d2:
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            if st.button(f"🗑️ Delete cycle #{int(del_cyc_id)}", key=f"dcd_{sym}"):
+                                pos["cc_cycles"] = [c for i,c in enumerate(cc_cycles,1) if i != int(del_cyc_id)]
+                                sc_db["positions"] = positions
+                                if sc_save(sc_db):
+                                    st.success(f"Cycle #{int(del_cyc_id)} deleted.")
+                                    st.session_state["sc_reload"] = True
+                                    st.rerun()
+
+                        # Cycle summary
+                        total_cyc_prem = sum(float(c.get("premium_income",0)) for c in cc_cycles)
+                        cs1,cs2,cs3 = st.columns(3)
+                        cs1.metric("Total cycles",  len(cc_cycles))
+                        cs2.metric("Total premium", f"₹{total_cyc_prem:,.2f}")
+                        cs3.metric("Avg per cycle", f"₹{total_cyc_prem/len(cc_cycles):,.2f}")
 
                 # Delete position
                 if st.button(f"🗑️ Remove {sym} position", key=f"del_{sym}"):

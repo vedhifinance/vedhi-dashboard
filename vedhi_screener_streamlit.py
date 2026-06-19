@@ -54,24 +54,32 @@ def calc_rsi_proper(close, period=14):
         return None
     return round(val, 1)
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=120)  # refresh every 2 min for live data
 def fetch_nifty():
     try:
+        # Daily — EMA, MACD (slow indicators)
         df = yf.download("^NSEI", period="1y", interval="1d", progress=False, auto_adjust=True)
         if df.empty or len(df) < 55: return None
         c = df["Close"].squeeze().dropna()
         c = c[~c.index.duplicated(keep='last')].sort_index()
         ema20 = c.ewm(span=20, adjust=False).mean().iloc[-1]
         ema50 = c.ewm(span=50, adjust=False).mean().iloc[-1]
-        rsi   = calc_rsi_proper(c)
-        if rsi is None: return None
         e12   = c.ewm(span=12, adjust=False).mean()
         e26   = c.ewm(span=26, adjust=False).mean()
         macd  = e12 - e26
         sig   = macd.ewm(span=9, adjust=False).mean()
         hist  = macd - sig
-        ltp   = float(c.iloc[-1])
         prev  = float(c.iloc[-2])
+        # Intraday 5-min — live RSI + live price
+        df_i  = yf.download("^NSEI", period="5d", interval="5m", progress=False, auto_adjust=True)
+        if not df_i.empty and len(df_i) >= 20:
+            c_i = df_i["Close"].squeeze().dropna()
+            c_i = c_i[~c_i.index.duplicated(keep='last')].sort_index()
+        else:
+            c_i = c
+        rsi   = calc_rsi_proper(c_i)
+        if rsi is None: return None
+        ltp   = float(c_i.iloc[-1])
         return {
             "ltp": ltp, "chg": ltp-prev, "chgp": (ltp-prev)/prev*100,
             "rsi": rsi, "ema20": round(float(ema20),1),
@@ -185,9 +193,10 @@ NIFTY50 = {
     "ULTRACEMCO":{"sector":"Cement","lot":50},       "WIPRO":{"sector":"IT","lot":3000},
 }
 
-@st.cache_data(ttl=1800)
+@st.cache_data(ttl=120)  # refresh every 2 min for live RSI
 def fetch_stock(symbol):
     try:
+        # Daily — EMA, MACD, Volume (slow indicators)
         df = yf.download(f"{symbol}.NS", period="1y", interval="1d", progress=False, auto_adjust=True)
         if df.empty or len(df)<55: return None
         c   = df["Close"].squeeze().dropna()
@@ -196,16 +205,25 @@ def fetch_stock(symbol):
         vol = vol[~vol.index.duplicated(keep='last')].sort_index()
         ema20   = c.ewm(span=20,adjust=False).mean().iloc[-1]
         ema50   = c.ewm(span=50,adjust=False).mean().iloc[-1]
-        rsi_val = calc_rsi_proper(c)
-        if rsi_val is None: return None
-        rsi     = rsi_val
         e12=c.ewm(span=12,adjust=False).mean(); e26=c.ewm(span=26,adjust=False).mean()
         macd=e12-e26; sig=macd.ewm(span=9,adjust=False).mean(); hist=macd-sig
-        ltp =float(c.iloc[-1]); prev=float(c.iloc[-2])
-        # Volume analysis
+        prev=float(c.iloc[-2])
+        # Volume
         today_vol = float(vol.iloc[-1])
         avg_vol   = float(vol.iloc[-21:-1].mean()) if len(vol) >= 21 else float(vol.mean())
         vol_ratio = round(today_vol/avg_vol, 2) if avg_vol > 0 else 0
+        # Intraday 5-min — live RSI + live price
+        df_i = yf.download(f"{symbol}.NS", period="5d", interval="5m",
+                            progress=False, auto_adjust=True)
+        if not df_i.empty and len(df_i) >= 20:
+            c_i = df_i["Close"].squeeze().dropna()
+            c_i = c_i[~c_i.index.duplicated(keep='last')].sort_index()
+        else:
+            c_i = c  # fallback to daily
+        rsi_val = calc_rsi_proper(c_i)
+        if rsi_val is None: return None
+        rsi     = rsi_val
+        ltp     = float(c_i.iloc[-1])
         vol_trend = "↑ High" if vol_ratio >= 1.5 else "↗ Above" if vol_ratio >= 1.0 else "↓ Low"
         # Derived signals
         ema_ok   = min(ema20,ema50) <= ltp <= max(ema20,ema50)

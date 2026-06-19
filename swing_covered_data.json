@@ -1,5 +1,41 @@
 {
-  "positions": [],
+  "positions": [
+    {
+      "id": 1,
+      "symbol": "NTPC",
+      "sector": "PSU Power",
+      "lot_size": 1500,
+      "buys": [
+        {
+          "shares": 589,
+          "price": 353.11,
+          "date": "2026-06-12",
+          "notes": "Tranche 1"
+        },
+        {
+          "shares": 139,
+          "price": 349.50,
+          "date": "2026-06-16",
+          "notes": "Tranche 2"
+        },
+        {
+          "shares": 110,
+          "price": 353.30,
+          "date": "2026-06-16",
+          "notes": "Tranche 3"
+        },
+        {
+          "shares": 539,
+          "price": 354.01,
+          "date": "2026-06-16",
+          "notes": "Tranche 4"
+        }
+      ],
+      "cc_cycles": []
+    }
+  ],
+  "sc_holdings": [],
+  "sc_sold": [],
   "monthly_snapshots": [
     {
       "month": "2026-06",
@@ -15,7 +51,7 @@
           "symbol": "NTPC",
           "shares": 1377,
           "avg_cost": 353.11,
-          "ltp": 355.1000061035156,
+          "ltp": 355.10,
           "invested": 486236.68,
           "current_val": 488972.71,
           "stock_pnl": 2736.03,

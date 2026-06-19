@@ -1714,119 +1714,77 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
             fresh_db["monthly_snapshots"] = snapshots
             return sc_save(fresh_db)
 
-        snapshots = sc_db.get("monthly_snapshots", [])
+        # ── Monthly Premium Income ────────────────────────────────────────────
+        st.divider()
+        st.markdown("#### 📅 Monthly Premium Income")
+        st.caption("Premium collected from covered call cycles — per stock per month")
 
-        # Auto-save if no snapshot for this month yet
-        if positions and not any(s["month"] == this_month for s in snapshots):
-            if save_monthly_snapshot("auto"):
-                st.session_state["sc_reload"] = True
-                snapshots = sc_db.get("monthly_snapshots", [])
+        # Collect all cc_cycles across all positions
+        all_cycles = []
+        for pos in positions:
+            for c in pos.get("cc_cycles", []):
+                all_cycles.append({
+                    "symbol":  pos["symbol"],
+                    "month":   str(c.get("expiry_date",""))[:7],
+                    "expiry":  c.get("expiry_date",""),
+                    "strike":  c.get("strike", 0),
+                    "premium": float(c.get("premium_income", 0)),
+                    "outcome": c.get("outcome","—"),
+                })
 
-        # Manual save button
-        col_snap, _ = st.columns([1, 3])
-        with col_snap:
-            if st.button("📸 Save this month's snapshot", type="secondary"):
-                if save_monthly_snapshot("manual"):
-                    st.success(f"✓ Snapshot for {this_month} saved!")
-                    st.session_state["sc_reload"] = True
-                    st.rerun()
-
-        if not snapshots:
-            st.info("No monthly snapshots yet. Add positions and the first snapshot will be saved automatically.")
+        if not all_cycles:
+            st.info("No covered call cycles logged yet. Add cycles in the Covered Call Tracker tab.")
         else:
-            # Sort by month
-            snapshots_sorted = sorted(snapshots, key=lambda x: x["month"])
+            df_cyc = pd.DataFrame(all_cycles)
 
-            # ── Summary chart ─────────────────────────────────────────────────────
+            # Monthly summary table
+            monthly = df_cyc.groupby("month")["premium"].sum().reset_index()
+            monthly.columns = ["Month","Premium ₹"]
+            monthly = monthly.sort_values("Month")
+            monthly["Cumulative ₹"] = monthly["Premium ₹"].cumsum()
+
             import altair as alt
-            df_snap = pd.DataFrame([{
-                "Month":         s["month"],
-                "Stock P&L":     s["stock_pnl"],
-                "Premium":       s["total_premium"],
-                "Combined P&L":  s["combined_pnl"],
-                "Invested":      s["total_invested"],
-            } for s in snapshots_sorted])
-
-            # Combined P&L line + Premium bars
-            base = alt.Chart(df_snap)
-            bars = base.mark_bar(color="#185FA5", opacity=0.7,
-                                 cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+            bars = alt.Chart(monthly).mark_bar(
+                color="#1D9E75", cornerRadiusTopLeft=4, cornerRadiusTopRight=4
+            ).encode(
                 x=alt.X("Month:O", axis=alt.Axis(labelAngle=-30)),
-                y=alt.Y("Premium:Q", title="Premium income (₹)"),
-                tooltip=["Month", alt.Tooltip("Premium:Q", format=",.0f")]
+                y=alt.Y("Premium ₹:Q", title="Premium income (₹)"),
+                tooltip=["Month", alt.Tooltip("Premium ₹:Q", format=",.0f")]
             )
-            line = base.mark_line(
-                color="#1D9E75", strokeWidth=2.5, point=True
+            line = alt.Chart(monthly).mark_line(
+                color="#185FA5", strokeWidth=2.5, point=True
             ).encode(
                 x="Month:O",
-                y=alt.Y("Combined P&L:Q", title="Combined P&L (₹)"),
-                tooltip=["Month", alt.Tooltip("Combined P&L:Q", format="+,.0f")]
+                y=alt.Y("Cumulative ₹:Q", title=""),
+                tooltip=["Month", alt.Tooltip("Cumulative ₹:Q", title="Cumulative", format=",.0f")]
             )
-            st.altair_chart(
-                alt.layer(bars, line).resolve_scale(y="independent"),
-                use_container_width=True, theme=None
-            )
-            st.caption("🔵 Bars = monthly premium income · 🟢 Line = combined P&L (stock + premium)")
+            st.altair_chart(alt.layer(bars, line).resolve_scale(y="independent"),
+                            use_container_width=True, theme=None)
+            st.caption("🟢 Bars = monthly premium · 🔵 Line = cumulative total")
 
-            # ── Month-by-month table ──────────────────────────────────────────────
-            st.markdown("#### Month-by-month breakdown")
-            rows = []
-            for s in snapshots_sorted:
-                t_inv = float(s.get("total_invested", 0) or 0)
-                t_cur = float(s.get("total_current", 0) or 0)
-                s_pnl = float(s.get("stock_pnl", 0) or 0)
-                t_pre = float(s.get("total_premium", 0) or 0)
-                c_pnl = float(s.get("combined_pnl", 0) or 0)
-                ret   = round(c_pnl/t_inv*100,1) if t_inv else 0
-                rows.append({
-                    "Month":        s["month"],
-                    "Invested ₹":   f"₹{t_inv:,.0f}",
-                    "Mkt Value ₹":  f"₹{t_cur:,.0f}",
-                    "Stock P&L":    f"₹{s_pnl:+,.0f}",
-                    "Premium ₹":    f"₹{t_pre:,.0f}",
-                    "Combined P&L": f"₹{c_pnl:+,.0f}",
-                    "Return %":     f"{ret:+.1f}%",
-                    "Saved":        s.get("label","auto"),
-                })
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            # Monthly table
+            display = monthly.copy()
+            display["Premium ₹"]    = display["Premium ₹"].apply(lambda x: f"₹{x:,.0f}")
+            display["Cumulative ₹"] = display["Cumulative ₹"].apply(lambda x: f"₹{x:,.0f}")
+            st.dataframe(display, use_container_width=False, hide_index=True)
 
-            # ── Position-level drilldown ──────────────────────────────────────────
-            st.markdown("#### Drill down by month")
-            selected_month = st.selectbox(
-                "Select month to see position breakdown",
-                options=[s["month"] for s in snapshots_sorted],
-                index=len(snapshots_sorted)-1
-            )
-            sel = next((s for s in snapshots if s["month"]==selected_month), None)
-            if sel and sel.get("positions"):
-                drill_rows = []
-                for p in sel["positions"]:
-                    try:
-                        drill_rows.append({
-                            "Stock":        p.get("symbol","—"),
-                            "Shares":       p.get("shares",0),
-                            "Avg Cost ₹":   f"₹{float(p.get('avg_cost',0)):.2f}",
-                            "Price ₹":      f"₹{float(p.get('ltp',0)):.2f}",
-                            "Invested ₹":   f"₹{float(p.get('invested',0)):,.0f}",
-                            "Mkt Value ₹":  f"₹{float(p.get('current_val',0)):,.0f}",
-                            "Stock P&L":    f"₹{float(p.get('stock_pnl',0)):+,.0f}",
-                            "Premium ₹":    f"₹{float(p.get('premium',0)):,.0f}",
-                            "Combined ₹":   f"₹{float(p.get('combined_pnl',0)):+,.0f}",
-                        })
-                    except: continue
-                if drill_rows:
-                    st.dataframe(pd.DataFrame(drill_rows), use_container_width=True, hide_index=True)
-                else:
-                    st.info("No position detail available for this month.")
-            else:
-                st.info("No position breakdown saved for this month. Click '📸 Save this month\\'s snapshot' to record details.")
+            # Per stock per month breakdown
+            st.markdown("**Premium by stock**")
+            by_stock = df_cyc.groupby(["symbol","month"])["premium"].sum().reset_index()
+            by_stock.columns = ["Stock","Month","Premium ₹"]
+            by_stock["Premium ₹"] = by_stock["Premium ₹"].apply(lambda x: f"₹{x:,.0f}")
+            st.dataframe(by_stock.sort_values(["Month","Stock"]),
+                         use_container_width=False, hide_index=True)
 
-            # Download full history
-            st.download_button(
-                "⬇ Download full P&L history CSV",
-                pd.DataFrame(rows).to_csv(index=False),
-                "vedhi_monthly_pnl.csv", "text/csv"
-            )
+            total_prem = df_cyc["premium"].sum()
+            sm1,sm2,sm3 = st.columns(3)
+            sm1.metric("Total cycles",   len(all_cycles))
+            sm2.metric("Total premium",  f"₹{total_prem:,.0f}")
+            sm3.metric("Avg per cycle",  f"₹{total_prem/len(all_cycles):,.0f}" if all_cycles else "—")
+
+            st.download_button("⬇ Download premium history",
+                               df_cyc.to_csv(index=False),
+                               "premium_history.csv", "text/csv")
 
 with tab3:
     import json, base64

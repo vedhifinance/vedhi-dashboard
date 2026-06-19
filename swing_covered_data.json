@@ -14,13 +14,13 @@
         },
         {
           "shares": 139,
-          "price": 349.50,
+          "price": 349.5,
           "date": "2026-06-16",
           "notes": "Tranche 2"
         },
         {
           "shares": 110,
-          "price": 353.30,
+          "price": 353.3,
           "date": "2026-06-16",
           "notes": "Tranche 3"
         },
@@ -34,7 +34,17 @@
       "cc_cycles": []
     }
   ],
-  "sc_holdings": [],
+  "sc_holdings": [
+    {
+      "id": 1,
+      "symbol": "NTPC",
+      "sector": "PSU Power",
+      "qty": 589,
+      "buy_price": 353.11,
+      "buy_date": "2026-06-12",
+      "notes": ""
+    }
+  ],
   "sc_sold": [],
   "monthly_snapshots": []
 }

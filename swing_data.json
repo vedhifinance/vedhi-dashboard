@@ -12,38 +12,24 @@
           "notes": ""
         }
       ]
-    },
-    {
-      "id": 2,
-      "symbol": "NTPC",
-      "sector": "PSU Power",
-      "buys": [
-        {
-          "qty": 589,
-          "price": 353.11,
-          "date": "2026-06-12",
-          "notes": ""
-        },
-        {
-          "qty": 139,
-          "price": 349.5,
-          "date": "2026-06-16",
-          "notes": ""
-        },
-        {
-          "qty": 110,
-          "price": 353.3,
-          "date": "2026-06-16",
-          "notes": ""
-        },
-        {
-          "qty": 539,
-          "price": 354.01,
-          "date": "2026-06-16",
-          "notes": ""
-        }
-      ]
     }
   ],
-  "sold": []
+  "sold": [
+    {
+      "id": 1,
+      "symbol": "NTPC",
+      "sector": "PSU Power",
+      "qty": 1377,
+      "avg_cost": 353.11,
+      "sell_price": 365.62,
+      "buy_date": "2026-06-12",
+      "sell_date": "2026-06-19",
+      "hold_days": 7,
+      "invested": 486236.68,
+      "proceeds": 503458.74,
+      "realised_pnl": 17222.06,
+      "pnl_pct": 3.54,
+      "notes": "My first stratgy worked well"
+    }
+  ]
 }

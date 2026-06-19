@@ -1414,6 +1414,44 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
                             "Notes":b.get("notes","—")} for b in buys]
                 st.dataframe(pd.DataFrame(bh_rows), use_container_width=True, hide_index=True)
 
+            # ── Sell shares from this position ────────────────────────────────
+            with st.expander(f"💸 {sym} — sell shares"):
+                with st.form(f"sell_form_{sym}", clear_on_submit=True):
+                    sell_c1, sell_c2, sell_c3 = st.columns(3)
+                    with sell_c1:
+                        sell_qty   = st.number_input("Qty to sell", min_value=1,
+                                                      max_value=total_shares, step=1,
+                                                      key=f"sq_{sym}")
+                    with sell_c2:
+                        sell_price = st.number_input("Sell price (₹)", min_value=0.01,
+                                                      step=0.05, format="%.2f", key=f"sp_{sym}")
+                    with sell_c3:
+                        sell_date  = st.date_input("Sell date", key=f"sd_{sym}")
+                    sell_notes = st.text_input("Notes (optional)", key=f"sn_{sym}")
+                    sell_submit= st.form_submit_button("💸 Confirm sell", type="primary")
+                    if sell_submit and sell_qty > 0 and sell_price > 0:
+                        inv_sold  = round(avg_cost * int(sell_qty), 2)
+                        proceeds  = round(float(sell_price) * int(sell_qty), 2)
+                        rpnl      = round(proceeds - inv_sold, 2)
+                        rpnl_pct  = round(rpnl/inv_sold*100,2) if inv_sold else 0
+                        # Remove sold shares from buys (FIFO)
+                        rem = int(sell_qty)
+                        for b in pos["buys"]:
+                            if rem <= 0: break
+                            ded = min(b["shares"], rem)
+                            b["shares"] -= ded
+                            rem -= ded
+                        pos["buys"] = [b for b in pos["buys"] if b["shares"] > 0]
+                        if not pos["buys"]:
+                            sc_db["positions"] = [p for p in positions if p["symbol"] != sym]
+                        else:
+                            sc_db["positions"] = positions
+                        if sc_save(sc_db):
+                            emoji = "🟢" if rpnl >= 0 else "🔴"
+                            st.success(f"{emoji} Sold {int(sell_qty)} {sym} @ ₹{sell_price:.2f} · P&L: ₹{rpnl:+,.0f} ({rpnl_pct:+.1f}%)")
+                            st.session_state["sc_reload"] = True
+                            st.rerun()
+
             # Log covered call cycle
             with st.expander(f"💰 {sym} — log a covered call cycle"):
                 with st.form(f"cc_form_{sym}", clear_on_submit=True):
@@ -1455,13 +1493,15 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
 
     def save_monthly_snapshot(label="auto"):
         """Calculate current P&L across all positions and save as monthly snapshot."""
-        if not positions:
+        fresh_db  = sc_load()
+        fresh_pos = fresh_db.get("positions", [])
+        if not fresh_pos:
             return False
         snap_positions = []
         total_invested = 0
         total_current  = 0
         total_premium  = 0
-        for pos in positions:
+        for pos in fresh_pos:
             buys         = pos.get("buys", [])
             total_shares = sum(b["shares"] for b in buys)
             if total_shares == 0: continue
@@ -1470,7 +1510,7 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
             ltp          = live["ltp"] if live else avg_cost
             invested     = round(avg_cost * total_shares, 2)
             current      = round(ltp * total_shares, 2)
-            prem         = sum(c.get("premium_income", 0) for c in pos.get("cc_cycles", []))
+            prem         = sum(float(c.get("premium_income", 0)) for c in pos.get("cc_cycles", []))
             stock_pnl    = round(current - invested, 2)
             total_invested += invested
             total_current  += current
@@ -1479,13 +1519,16 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
                 "symbol":       pos["symbol"],
                 "shares":       total_shares,
                 "avg_cost":     round(avg_cost, 2),
-                "ltp":          ltp,
+                "ltp":          round(ltp, 2),
                 "invested":     invested,
                 "current_val":  current,
                 "stock_pnl":    stock_pnl,
-                "premium":      prem,
+                "premium":      round(prem, 2),
                 "combined_pnl": round(stock_pnl + prem, 2),
             })
+
+        if total_invested == 0:
+            return False
 
         snapshot = {
             "month":         this_month,
@@ -1498,14 +1541,11 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
             "combined_pnl":  round(total_current - total_invested + total_premium, 2),
             "positions":     snap_positions,
         }
-
-        # Load, update, save
-        snapshots = sc_db.get("monthly_snapshots", [])
-        # Replace existing snapshot for this month if exists
+        snapshots = fresh_db.get("monthly_snapshots", [])
         snapshots = [s for s in snapshots if s["month"] != this_month]
         snapshots.append(snapshot)
-        sc_db["monthly_snapshots"] = snapshots
-        return sc_save(sc_db)
+        fresh_db["monthly_snapshots"] = snapshots
+        return sc_save(fresh_db)
 
     snapshots = sc_db.get("monthly_snapshots", [])
 
@@ -1565,16 +1605,21 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
         st.markdown("#### Month-by-month breakdown")
         rows = []
         for s in snapshots_sorted:
-            pnl_pct = round(s["combined_pnl"]/s["total_invested"]*100, 1) if s["total_invested"] else 0
+            t_inv = float(s.get("total_invested", 0) or 0)
+            t_cur = float(s.get("total_current", 0) or 0)
+            s_pnl = float(s.get("stock_pnl", 0) or 0)
+            t_pre = float(s.get("total_premium", 0) or 0)
+            c_pnl = float(s.get("combined_pnl", 0) or 0)
+            ret   = round(c_pnl/t_inv*100,1) if t_inv else 0
             rows.append({
-                "Month":          s["month"],
-                "Invested ₹":     f"₹{s['total_invested']:,.0f}",
-                "Mkt Value ₹":    f"₹{s['total_current']:,.0f}",
-                "Stock P&L":      f"₹{s['stock_pnl']:+,.0f}",
-                "Premium ₹":      f"₹{s['total_premium']:,.0f}",
-                "Combined P&L":   f"₹{s['combined_pnl']:+,.0f}",
-                "Return %":       f"{pnl_pct:+.1f}%",
-                "Saved":          s.get("label","auto"),
+                "Month":        s["month"],
+                "Invested ₹":   f"₹{t_inv:,.0f}",
+                "Mkt Value ₹":  f"₹{t_cur:,.0f}",
+                "Stock P&L":    f"₹{s_pnl:+,.0f}",
+                "Premium ₹":    f"₹{t_pre:,.0f}",
+                "Combined P&L": f"₹{c_pnl:+,.0f}",
+                "Return %":     f"{ret:+.1f}%",
+                "Saved":        s.get("label","auto"),
             })
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 

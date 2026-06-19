@@ -1434,23 +1434,27 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
                         proceeds  = round(float(sell_price) * int(sell_qty), 2)
                         rpnl      = round(proceeds - inv_sold, 2)
                         rpnl_pct  = round(rpnl/inv_sold*100,2) if inv_sold else 0
-                        # Remove sold shares from buys (FIFO)
-                        rem = int(sell_qty)
-                        for b in pos["buys"]:
-                            if rem <= 0: break
-                            ded = min(b["shares"], rem)
-                            b["shares"] -= ded
-                            rem -= ded
-                        pos["buys"] = [b for b in pos["buys"] if b["shares"] > 0]
-                        if not pos["buys"]:
-                            sc_db["positions"] = [p for p in positions if p["symbol"] != sym]
-                        else:
-                            sc_db["positions"] = positions
-                        if sc_save(sc_db):
-                            emoji = "🟢" if rpnl >= 0 else "🔴"
-                            st.success(f"{emoji} Sold {int(sell_qty)} {sym} @ ₹{sell_price:.2f} · P&L: ₹{rpnl:+,.0f} ({rpnl_pct:+.1f}%)")
-                            st.session_state["sc_reload"] = True
-                            st.rerun()
+                        # Reload fresh data, apply sell, save
+                        fresh = sc_load()
+                        fresh_pos = fresh.get("positions", [])
+                        target = next((p for p in fresh_pos if p["symbol"]==sym), None)
+                        if target:
+                            rem = int(sell_qty)
+                            for b in target["buys"]:
+                                if rem <= 0: break
+                                ded = min(b["shares"], rem)
+                                b["shares"] -= ded
+                                rem -= ded
+                            target["buys"] = [b for b in target["buys"] if b["shares"] > 0]
+                            if not target["buys"]:
+                                fresh["positions"] = [p for p in fresh_pos if p["symbol"] != sym]
+                            else:
+                                fresh["positions"] = fresh_pos
+                            if sc_save(fresh):
+                                emoji = "🟢" if rpnl >= 0 else "🔴"
+                                st.success(f"{emoji} Sold {int(sell_qty)} {sym} @ ₹{sell_price:.2f} · P&L: ₹{rpnl:+,.0f} ({rpnl_pct:+.1f}%)")
+                                st.session_state["sc_reload"] = True
+                                st.rerun()
 
             # Log covered call cycle
             with st.expander(f"💰 {sym} — log a covered call cycle"):
@@ -1634,18 +1638,25 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
         if sel and sel.get("positions"):
             drill_rows = []
             for p in sel["positions"]:
-                drill_rows.append({
-                    "Stock":        p["symbol"],
-                    "Shares":       p["shares"],
-                    "Avg Cost ₹":   f"₹{p['avg_cost']:.2f}",
-                    "Price ₹":      f"₹{p['ltp']:.2f}",
-                    "Invested ₹":   f"₹{p['invested']:,.0f}",
-                    "Mkt Value ₹":  f"₹{p['current_val']:,.0f}",
-                    "Stock P&L":    f"₹{p['stock_pnl']:+,.0f}",
-                    "Premium ₹":    f"₹{p['premium']:,.0f}",
-                    "Combined ₹":   f"₹{p['combined_pnl']:+,.0f}",
-                })
-            st.dataframe(pd.DataFrame(drill_rows), use_container_width=True, hide_index=True)
+                try:
+                    drill_rows.append({
+                        "Stock":        p.get("symbol","—"),
+                        "Shares":       p.get("shares",0),
+                        "Avg Cost ₹":   f"₹{float(p.get('avg_cost',0)):.2f}",
+                        "Price ₹":      f"₹{float(p.get('ltp',0)):.2f}",
+                        "Invested ₹":   f"₹{float(p.get('invested',0)):,.0f}",
+                        "Mkt Value ₹":  f"₹{float(p.get('current_val',0)):,.0f}",
+                        "Stock P&L":    f"₹{float(p.get('stock_pnl',0)):+,.0f}",
+                        "Premium ₹":    f"₹{float(p.get('premium',0)):,.0f}",
+                        "Combined ₹":   f"₹{float(p.get('combined_pnl',0)):+,.0f}",
+                    })
+                except: continue
+            if drill_rows:
+                st.dataframe(pd.DataFrame(drill_rows), use_container_width=True, hide_index=True)
+            else:
+                st.info("No position detail available for this month.")
+        else:
+            st.info("No position breakdown saved for this month. Click '📸 Save this month\\'s snapshot' to record details.")
 
         # Download full history
         st.download_button(

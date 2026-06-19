@@ -12,6 +12,19 @@
           "notes": ""
         }
       ]
+    },
+    {
+      "id": 2,
+      "symbol": "ONGC",
+      "sector": "Energy",
+      "buys": [
+        {
+          "qty": 819,
+          "price": 244.5,
+          "date": "2026-06-19",
+          "notes": ""
+        }
+      ]
     }
   ],
   "sold": [

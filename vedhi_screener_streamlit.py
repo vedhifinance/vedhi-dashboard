@@ -1364,11 +1364,11 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
         else:
             with st.form("sc_sell_form", clear_on_submit=True):
                 s1,s2,s3,s4=st.columns(4)
-                with s1: ss=st.selectbox("Stock to sell", sorted(open_syms), key="sc2_sym")
-                with s2: sq=st.number_input("Qty to sell", min_value=1, step=1, key="sc2_qty")
-                with s3: sp=st.number_input("Sell price (₹)", min_value=0.01, step=0.05, format="%.2f", key="sc2_sp")
-                with s4: sd=st.date_input("Sell date", key="sc2_sd")
-                sn=st.text_input("Notes (optional)", key="sc2_notes")
+                with s1: ss=st.selectbox("Stock to sell", sorted(open_syms), key="f4_sym")
+                with s2: sq=st.number_input("Qty to sell", min_value=1, step=1, key="f4_qty")
+                with s3: sp=st.number_input("Sell price (₹)", min_value=0.01, step=0.05, format="%.2f", key="f4_sp")
+                with s4: sd=st.date_input("Sell date", key="f4_sd")
+                sn=st.text_input("Notes (optional)", key="f4_notes")
                 if st.form_submit_button("💸 Confirm sell", type="primary", use_container_width=True):
                     buys  = [h for h in sc_holdings if h["symbol"]==ss]
                     total = sum(b["qty"] for b in buys)

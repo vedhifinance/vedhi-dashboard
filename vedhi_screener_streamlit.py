@@ -506,12 +506,12 @@ with tab1:
         st.markdown("**➕ Add holding**")
         with st.form("sw_add_form", clear_on_submit=True):
             a1,a2,a3,a4 = st.columns(4)
-            with a1: sw_sym   = st.selectbox("Stock", list(NIFTY50.keys()), key="sw_sym")
-            with a2: sw_qty   = st.number_input("Quantity", min_value=1, step=1, key="sw_qty")
+            with a1: sw_sym   = st.selectbox("Stock", list(NIFTY50.keys()))
+            with a2: sw_qty   = st.number_input("Quantity", min_value=1, step=1)
             with a3: sw_price = st.number_input("Buy price (₹)", min_value=0.01,
-                                                 step=0.05, format="%.2f", key="sw_bp")
-            with a4: sw_date  = st.date_input("Buy date", key="sw_date")
-            sw_notes = st.text_input("Notes (optional)", key="sw_notes")
+                                                 step=0.05, format="%.2f")
+            with a4: sw_date  = st.date_input("Buy date")
+            sw_notes = st.text_input("Notes (optional)")
             sw_submit = st.form_submit_button("Add holding", type="primary",
                                                use_container_width=True)
             if sw_submit and sw_qty > 0 and sw_price > 0:
@@ -636,12 +636,12 @@ with tab1:
             with st.form("sw_sell_form", clear_on_submit=True):
                 holding_syms = [h["symbol"] for h in holdings]
                 s1,s2,s3,s4 = st.columns(4)
-                with s1: sell_sym   = st.selectbox("Stock to sell", holding_syms, key="sell_sym")
-                with s2: sell_qty   = st.number_input("Qty to sell", min_value=1, step=1, key="sell_qty")
+                with s1: sell_sym   = st.selectbox("Stock to sell", holding_syms)
+                with s2: sell_qty   = st.number_input("Qty to sell", min_value=1, step=1)
                 with s3: sell_price = st.number_input("Sell price (₹)", min_value=0.01,
-                                                       step=0.05, format="%.2f", key="sell_price")
-                with s4: sell_date  = st.date_input("Sell date", key="sell_date")
-                sell_notes = st.text_input("Notes (optional)", key="sell_notes")
+                                                       step=0.05, format="%.2f")
+                with s4: sell_date  = st.date_input("Sell date")
+                sell_notes = st.text_input("Notes (optional)")
                 sell_submit = st.form_submit_button("💸 Confirm sell", type="primary",
                                                      use_container_width=True)
 
@@ -1278,11 +1278,11 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
         st.markdown("**➕ Add holding**")
         with st.form("sc_holding_add", clear_on_submit=True):
             h1,h2,h3,h4 = st.columns(4)
-            with h1: sh_sym   = st.selectbox("Stock", list(NIFTY50.keys()), key="sc_sym")
-            with h2: sh_qty   = st.number_input("Quantity", min_value=1, step=1, key="sc_qty")
-            with h3: sh_price = st.number_input("Buy price (₹)", min_value=0.01, step=0.05, format="%.2f", key="sc_bp")
-            with h4: sh_date  = st.date_input("Buy date", key="sc_date")
-            sh_notes = st.text_input("Notes (optional)", key="sc_notes")
+            with h1: sh_sym   = st.selectbox("Stock", list(NIFTY50.keys()))
+            with h2: sh_qty   = st.number_input("Quantity", min_value=1, step=1)
+            with h3: sh_price = st.number_input("Buy price (₹)", min_value=0.01, step=0.05, format="%.2f")
+            with h4: sh_date  = st.date_input("Buy date")
+            sh_notes = st.text_input("Notes (optional)")
             if st.form_submit_button("Add holding", type="primary", use_container_width=True):
                 if sh_qty > 0 and sh_price > 0:
                     sc_holdings.append({
@@ -1362,11 +1362,11 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
         else:
             with st.form("sc_sell_form", clear_on_submit=True):
                 s1,s2,s3,s4=st.columns(4)
-                with s1: ss=st.selectbox("Stock to sell", sorted(open_syms), key="sc_sell_sym")
-                with s2: sq=st.number_input("Qty to sell", min_value=1, step=1, key="sc_sell_qty")
-                with s3: sp=st.number_input("Sell price (₹)", min_value=0.01, step=0.05, format="%.2f", key="sc_sell_price")
-                with s4: sd=st.date_input("Sell date", key="sc_sell_date")
-                sn=st.text_input("Notes (optional)", key="sc_sell_notes")
+                with s1: ss=st.selectbox("Stock to sell", sorted(open_syms))
+                with s2: sq=st.number_input("Qty to sell", min_value=1, step=1)
+                with s3: sp=st.number_input("Sell price (₹)", min_value=0.01, step=0.05, format="%.2f")
+                with s4: sd=st.date_input("Sell date")
+                sn=st.text_input("Notes (optional)")
                 if st.form_submit_button("💸 Confirm sell", type="primary", use_container_width=True):
                     buys  = [h for h in sc_holdings if h["symbol"]==ss]
                     total = sum(b["qty"] for b in buys)

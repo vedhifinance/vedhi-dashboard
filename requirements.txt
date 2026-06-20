@@ -4,3 +4,6 @@ pandas
 numpy
 altair
 requests
+smartapi-python
+pyotp
+websocket-client

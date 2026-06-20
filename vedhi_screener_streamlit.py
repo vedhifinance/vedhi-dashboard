@@ -2,6 +2,8 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import pyotp
+from SmartApi import SmartConnect
 
 st.set_page_config(page_title="Vedhi Pulse", layout="wide", page_icon="📈")
 
@@ -34,6 +36,89 @@ st.markdown("""
 
 # ── Nifty 50 Live Indicators (once) ──────────────────────────────────────────
 
+# ── Angel One SmartAPI connection ────────────────────────────────────────────
+@st.cache_resource(ttl=3600)
+def get_angel_client():
+    try:
+        api_key     = st.secrets.get("ANGEL_API_KEY", "")
+        client_id   = st.secrets.get("ANGEL_CLIENT_ID", "")
+        password    = st.secrets.get("ANGEL_PASSWORD", "")
+        totp_secret = st.secrets.get("ANGEL_TOTP_SECRET", "")
+        if not all([api_key, client_id, password, totp_secret]):
+            return None, "Missing Angel One credentials in Streamlit secrets"
+        totp     = pyotp.TOTP(totp_secret).now()
+        smartapi = SmartConnect(api_key=api_key)
+        data     = smartapi.generateSession(client_id, password, totp)
+        if data.get("status"):
+            return smartapi, None
+        return None, f"Login failed: {data.get('message','Unknown error')}"
+    except Exception as e:
+        return None, str(e)
+
+# Angel One NSE symbol tokens for Nifty 50
+ANGEL_TOKENS = {
+    "ADANIENT":"25",      "ADANIPORTS":"15083", "APOLLOHOSP":"157",
+    "ASIANPAINT":"236",   "AXISBANK":"5900",    "BAJAJ-AUTO":"16669",
+    "BAJFINANCE":"317",   "BAJAJFINSV":"16675", "BEL":"383",
+    "BPCL":"526",         "BHARTIARTL":"10604", "BRITANNIA":"547",
+    "CIPLA":"694",        "COALINDIA":"20374",  "DIVISLAB":"10940",
+    "DRREDDY":"881",      "EICHERMOT":"910",    "GRASIM":"1232",
+    "HCLTECH":"7229",     "HDFCBANK":"1333",    "HDFCLIFE":"467",
+    "HEROMOTOCO":"1348",  "HINDALCO":"1363",    "HINDUNILVR":"1394",
+    "ICICIBANK":"4963",   "ITC":"1660",         "INDUSINDBK":"5258",
+    "INFY":"1594",        "JSWSTEEL":"11723",   "KOTAKBANK":"1922",
+    "LT":"11483",         "M&M":"2031",         "MARUTI":"10999",
+    "NTPC":"11630",       "NESTLEIND":"17963",  "ONGC":"2475",
+    "POWERGRID":"14977",  "RELIANCE":"2885",    "SBILIFE":"21808",
+    "SHRIRAMFIN":"4306",  "SBIN":"3045",        "SUNPHARMA":"3351",
+    "TCS":"11536",        "TATACONSUM":"3432",  "TATAMOTORS":"3456",
+    "TATASTEEL":"3499",   "TECHM":"13538",      "TITAN":"3506",
+    "ULTRACEMCO":"2885",  "WIPRO":"3787",
+    "NIFTY":"26000",  # Nifty 50 index token
+}
+
+@st.cache_data(ttl=60)
+def get_candles_angel(symbol, interval="FIVE_MINUTE", days=5):
+    """Fetch live intraday candles from Angel One — updates every 60 seconds"""
+    try:
+        client, err = get_angel_client()
+        if err or not client: return None
+        from datetime import datetime, timedelta
+        end_dt   = datetime.now()
+        start_dt = end_dt - timedelta(days=days)
+        token    = ANGEL_TOKENS.get(symbol, "")
+        if not token: return None
+        params = {
+            "exchange":    "NSE",
+            "symboltoken": token,
+            "interval":    interval,
+            "fromdate":    start_dt.strftime("%Y-%m-%d %H:%M"),
+            "todate":      end_dt.strftime("%Y-%m-%d %H:%M"),
+        }
+        resp = client.getCandleData(params)
+        if resp.get("status") and resp.get("data"):
+            df = pd.DataFrame(resp["data"],
+                              columns=["timestamp","open","high","low","close","volume"])
+            df["close"]  = pd.to_numeric(df["close"])
+            df["volume"] = pd.to_numeric(df["volume"])
+            return df
+        return None
+    except: return None
+
+@st.cache_data(ttl=30)
+def get_ltp_angel(symbol):
+    """Get live price from Angel One — updates every 30 seconds"""
+    try:
+        client, err = get_angel_client()
+        if err or not client: return None
+        token = ANGEL_TOKENS.get(symbol, "")
+        if not token: return None
+        resp  = client.ltpData("NSE", symbol, token)
+        if resp.get("status"):
+            return float(resp["data"]["ltp"])
+        return None
+    except: return None
+
 def calc_rsi_proper(close, period=14):
     """Wilder's RSI — correct implementation used everywhere"""
     close = close.dropna()
@@ -54,181 +139,89 @@ def calc_rsi_proper(close, period=14):
         return None
     return round(val, 1)
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)
 def fetch_nifty():
     try:
+        # Daily data from Yahoo — for EMA, MACD
         df = yf.download("^NSEI", period="1y", interval="1d", progress=False, auto_adjust=True)
         if df.empty or len(df) < 55: return None
-        c = df["Close"].squeeze().dropna()
-        c = c[~c.index.duplicated(keep='last')].sort_index()
-        ema20 = c.ewm(span=20, adjust=False).mean().iloc[-1]
-        ema50 = c.ewm(span=50, adjust=False).mean().iloc[-1]
-        rsi   = calc_rsi_proper(c)
+        c    = df["Close"].squeeze().dropna()
+        c    = c[~c.index.duplicated(keep='last')].sort_index()
+        ema20= c.ewm(span=20,adjust=False).mean().iloc[-1]
+        ema50= c.ewm(span=50,adjust=False).mean().iloc[-1]
+        e12  = c.ewm(span=12,adjust=False).mean()
+        e26  = c.ewm(span=26,adjust=False).mean()
+        macd = e12-e26; sig=macd.ewm(span=9,adjust=False).mean(); hist=macd-sig
+        prev = float(c.iloc[-2])
+
+        # Live data from Angel One — for RSI and LTP
+        df_i = get_candles_angel("NIFTY", "FIVE_MINUTE", days=5)
+        if df_i is not None and len(df_i) >= 20:
+            c_i = pd.Series(df_i["close"].values)
+            rsi = calc_rsi_proper(c_i)
+            ltp = float(df_i["close"].iloc[-1])
+        else:
+            # Fallback to daily
+            rsi = calc_rsi_proper(c)
+            ltp = float(c.iloc[-1])
+
         if rsi is None: return None
-        e12   = c.ewm(span=12, adjust=False).mean()
-        e26   = c.ewm(span=26, adjust=False).mean()
-        macd  = e12 - e26
-        sig   = macd.ewm(span=9, adjust=False).mean()
-        hist  = macd - sig
-        ltp   = float(c.iloc[-1])
-        prev  = float(c.iloc[-2])
-        return {
-            "ltp": ltp, "chg": ltp-prev, "chgp": (ltp-prev)/prev*100,
-            "rsi": rsi, "ema20": round(float(ema20),1),
-            "ema50": round(float(ema50),1), "macd": round(float(macd.iloc[-1]),2),
-            "signal": round(float(sig.iloc[-1]),2), "hist": round(float(hist.iloc[-1]),2),
-        }
+        return {"ltp":ltp,"chg":ltp-prev,"chgp":(ltp-prev)/prev*100,
+                "rsi":rsi,"ema20":round(float(ema20),1),"ema50":round(float(ema50),1),
+                "macd":round(float(macd.iloc[-1]),2),"signal":round(float(sig.iloc[-1]),2),
+                "hist":round(float(hist.iloc[-1]),2),
+                "live": df_i is not None}
     except: return None
 
-nifty = fetch_nifty()
-if nifty:
-    arrow    = "▲" if nifty["chg"] >= 0 else "▼"
-    chg_col  = "#1D9E75" if nifty["chg"] >= 0 else "#E24B4A"
-    rsi_col  = "#185FA5" if nifty["rsi"]<30 else "#1D9E75" if nifty["rsi"]<40 else \
-               "#D98A1A" if nifty["rsi"]<70 else "#E24B4A"
-    rsi_lbl  = "Oversold" if nifty["rsi"]<30 else "Value" if nifty["rsi"]<40 else \
-               "Neutral" if nifty["rsi"]<60 else "Elevated" if nifty["rsi"]<70 else "Overbought"
-    hist_col = "#1D9E75" if nifty["hist"]>=0 else "#E24B4A"
-    e20_col  = "#1D9E75" if nifty["ltp"]>nifty["ema20"] else "#E24B4A"
-    e50_col  = "#1D9E75" if nifty["ltp"]>nifty["ema50"] else "#E24B4A"
-
-    st.markdown(f"""
-    <div style="background:#fff;border:0.5px solid #E0DED8;border-radius:8px;
-                padding:10px 16px;display:flex;align-items:center;
-                gap:0;flex-wrap:wrap;margin-bottom:4px">
-
-      <div style="padding:0 16px 0 0;margin-right:16px;border-right:0.5px solid #E0DED8">
-        <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.05em">Nifty 50</div>
-        <div style="display:flex;align-items:baseline;gap:6px;margin-top:1px">
-          <span style="font-size:16px;font-weight:600;color:#1A1A18">{nifty['ltp']:,.2f}</span>
-          <span style="font-size:11px;font-weight:500;color:{chg_col}">{arrow} {abs(nifty['chg']):.0f} ({abs(nifty['chgp']):.1f}%)</span>
-        </div>
-      </div>
-
-      <div style="padding:0 16px;border-right:0.5px solid #E0DED8">
-        <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.05em">RSI 14</div>
-        <div style="margin-top:1px">
-          <span style="font-size:14px;font-weight:600;color:{rsi_col}">{nifty['rsi']}</span>
-          <span style="font-size:10px;color:{rsi_col};margin-left:4px">{rsi_lbl}</span>
-        </div>
-      </div>
-
-      <div style="padding:0 16px;border-right:0.5px solid #E0DED8">
-        <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.05em">EMA 20</div>
-        <div style="margin-top:1px">
-          <span style="font-size:14px;font-weight:500;color:#1A1A18">{nifty['ema20']:,.0f}</span>
-          <span style="font-size:10px;color:{e20_col};margin-left:4px">{'↑ Above' if nifty['ltp']>nifty['ema20'] else '↓ Below'}</span>
-        </div>
-      </div>
-
-      <div style="padding:0 16px;border-right:0.5px solid #E0DED8">
-        <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.05em">EMA 50</div>
-        <div style="margin-top:1px">
-          <span style="font-size:14px;font-weight:500;color:#1A1A18">{nifty['ema50']:,.0f}</span>
-          <span style="font-size:10px;color:{e50_col};margin-left:4px">{'↑ Above' if nifty['ltp']>nifty['ema50'] else '↓ Below'}</span>
-        </div>
-      </div>
-
-      <div style="padding:0 16px;border-right:0.5px solid #E0DED8">
-        <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.05em">MACD</div>
-        <div style="margin-top:1px">
-          <span style="font-size:14px;font-weight:500;color:#1A1A18">{nifty['macd']:+.1f}</span>
-          <span style="font-size:10px;color:#888;margin-left:4px">Sig {nifty['signal']:+.1f}</span>
-        </div>
-      </div>
-
-      <div style="padding:0 0 0 16px">
-        <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.05em">Histogram</div>
-        <div style="margin-top:1px">
-          <span style="font-size:14px;font-weight:500;color:{hist_col}">{nifty['hist']:+.1f}</span>
-          <span style="font-size:10px;color:{hist_col};margin-left:4px">{'Bullish' if nifty['hist']>=0 else 'Bearish'}</span>
-        </div>
-      </div>
-
-      <div style="margin-left:auto;font-size:10px;color:#bbb;padding-left:16px">
-        {pd.Timestamp.now().strftime('%d %b %Y %H:%M')} IST
-      </div>
-
-    </div>
-    """, unsafe_allow_html=True)
-else:
-    st.warning("Could not fetch Nifty 50 data — please refresh.")
-
-st.divider()
-
-# ── Nifty 50 tickers ──────────────────────────────────────────────────────────
-NIFTY50 = {
-    "ADANIENT":{"sector":"Conglomerate","lot":309}, "ADANIPORTS":{"sector":"Ports","lot":475},
-    "APOLLOHOSP":{"sector":"Healthcare","lot":125}, "ASIANPAINT":{"sector":"Paint","lot":250},
-    "AXISBANK":{"sector":"Bank","lot":625},         "BAJAJ-AUTO":{"sector":"Auto","lot":75},
-    "BAJFINANCE":{"sector":"NBFC","lot":750},       "BAJAJFINSV":{"sector":"NBFC","lot":250},
-    "BEL":{"sector":"Defence","lot":1425},           "BPCL":{"sector":"Energy","lot":1975},
-    "BHARTIARTL":{"sector":"Telecom","lot":475},    "BRITANNIA":{"sector":"FMCG","lot":125},
-    "CIPLA":{"sector":"Pharma","lot":375},           "COALINDIA":{"sector":"Energy","lot":1350},
-    "DIVISLAB":{"sector":"Pharma","lot":100},        "DRREDDY":{"sector":"Pharma","lot":625},
-    "EICHERMOT":{"sector":"Auto","lot":100},         "GRASIM":{"sector":"Cement","lot":250},
-    "HCLTECH":{"sector":"IT","lot":350},             "HDFCBANK":{"sector":"Bank","lot":550},
-    "HDFCLIFE":{"sector":"Insurance","lot":1100},   "HEROMOTOCO":{"sector":"Auto","lot":150},
-    "HINDALCO":{"sector":"Metal","lot":700},         "HINDUNILVR":{"sector":"FMCG","lot":300},
-    "ICICIBANK":{"sector":"Bank","lot":700},         "ITC":{"sector":"FMCG","lot":1600},
-    "INDUSINDBK":{"sector":"Bank","lot":700},        "INFY":{"sector":"IT","lot":400},
-    "JSWSTEEL":{"sector":"Metal","lot":675},         "KOTAKBANK":{"sector":"Bank","lot":2000},
-    "LT":{"sector":"Infra","lot":175},               "M&M":{"sector":"Auto","lot":200},
-    "MARUTI":{"sector":"Auto","lot":50},             "NTPC":{"sector":"PSU Power","lot":1500},
-    "NESTLEIND":{"sector":"FMCG","lot":500},         "ONGC":{"sector":"Energy","lot":2250},
-    "POWERGRID":{"sector":"PSU Power","lot":1900},  "RELIANCE":{"sector":"Conglomerate","lot":500},
-    "SBILIFE":{"sector":"Insurance","lot":375},      "SHRIRAMFIN":{"sector":"NBFC","lot":825},
-    "SBIN":{"sector":"PSU Bank","lot":750},          "SUNPHARMA":{"sector":"Pharma","lot":350},
-    "TCS":{"sector":"IT","lot":175},                 "TATACONSUM":{"sector":"FMCG","lot":550},
-    "TATAMOTORS":{"sector":"Auto","lot":1425},       "TATASTEEL":{"sector":"Metal","lot":2750},
-    "TECHM":{"sector":"IT","lot":600},               "TITAN":{"sector":"Consumer","lot":175},
-    "ULTRACEMCO":{"sector":"Cement","lot":50},       "WIPRO":{"sector":"IT","lot":3000},
-}
-
-@st.cache_data(ttl=1800)
+@st.cache_data(ttl=60)
 def fetch_stock(symbol):
     try:
+        # Daily data from Yahoo — for EMA, Volume trend
         df = yf.download(f"{symbol}.NS", period="1y", interval="1d", progress=False, auto_adjust=True)
         if df.empty or len(df)<55: return None
         c   = df["Close"].squeeze().dropna()
         c   = c[~c.index.duplicated(keep='last')].sort_index()
         vol = df["Volume"].squeeze().dropna()
         vol = vol[~vol.index.duplicated(keep='last')].sort_index()
-        ema20   = c.ewm(span=20,adjust=False).mean().iloc[-1]
-        ema50   = c.ewm(span=50,adjust=False).mean().iloc[-1]
-        rsi_val = calc_rsi_proper(c)
-        if rsi_val is None: return None
-        rsi     = rsi_val
-        e12=c.ewm(span=12,adjust=False).mean(); e26=c.ewm(span=26,adjust=False).mean()
-        macd=e12-e26; sig=macd.ewm(span=9,adjust=False).mean(); hist=macd-sig
-        ltp =float(c.iloc[-1]); prev=float(c.iloc[-2])
-        # Volume analysis
+        ema20 = c.ewm(span=20,adjust=False).mean().iloc[-1]
+        ema50 = c.ewm(span=50,adjust=False).mean().iloc[-1]
+        prev  = float(c.iloc[-2])
         today_vol = float(vol.iloc[-1])
-        avg_vol   = float(vol.iloc[-21:-1].mean()) if len(vol) >= 21 else float(vol.mean())
+        avg_vol   = float(vol.iloc[-21:-1].mean()) if len(vol)>=21 else float(vol.mean())
         vol_ratio = round(today_vol/avg_vol, 2) if avg_vol > 0 else 0
-        vol_trend = "↑ High" if vol_ratio >= 1.5 else "↗ Above" if vol_ratio >= 1.0 else "↓ Low"
-        # Derived signals
-        ema_ok   = min(ema20,ema50) <= ltp <= max(ema20,ema50)
-        bull     = ema20 > ema50
-        macd_bull= float(hist.iloc[-1]) >= 0
-        # Signal logic — Trend + RSI + Volume are the primary drivers
-        rsi_ok   = 30 <= rsi <= 50
-        vol_ok   = vol_ratio >= 1.2
-        if bull and rsi_ok and vol_ok:    signal = "🟢 Strong Buy"
-        elif bull and rsi_ok:             signal = "🟡 Watch (low vol)"
-        elif bull and vol_ok and ema_ok:  signal = "🟡 Watch"
-        elif bull:                        signal = "🟡 Weak"
-        else:                             signal = "🔴 Avoid"
+        vol_trend = "↑ High" if vol_ratio>=1.5 else "↗ Above" if vol_ratio>=1.0 else "↓ Low"
+
+        # Live RSI and LTP from Angel One 5-min candles
+        df_i = get_candles_angel(symbol, "FIVE_MINUTE", days=5)
+        if df_i is not None and len(df_i) >= 20:
+            c_i = pd.Series(df_i["close"].values)
+            rsi = calc_rsi_proper(c_i)
+            ltp = float(df_i["close"].iloc[-1])
+            live_rsi = True
+        else:
+            # Fallback to daily if Angel One unavailable
+            rsi = calc_rsi_proper(c)
+            ltp = float(c.iloc[-1])
+            live_rsi = False
+
+        if rsi is None: return None
+        ema_ok = min(ema20,ema50) <= ltp <= max(ema20,ema50)
+        bull   = ema20 > ema50
+        rsi_ok = 30 <= rsi <= 50
+        vol_ok = vol_ratio >= 1.2
+        if bull and rsi_ok and vol_ok:   signal = "🟢 Strong Buy"
+        elif bull and rsi_ok:            signal = "🟡 Watch (low vol)"
+        elif bull and vol_ok and ema_ok: signal = "🟡 Watch"
+        elif bull:                       signal = "🟡 Weak"
+        else:                            signal = "🔴 Avoid"
         return {
             "LTP":round(ltp,2), "Chg%":round((ltp-prev)/prev*100,2),
             "RSI":round(float(rsi),1), "EMA 20":round(float(ema20),2),
-            "EMA 50":round(float(ema50),2), "MACD":round(float(macd.iloc[-1]),2),
-            "Signal Line":round(float(sig.iloc[-1]),2), "Histogram":round(float(hist.iloc[-1]),2),
+            "EMA 50":round(float(ema50),2),
             "EMA Zone":"Yes" if ema_ok else "No",
             "Trend":"Bull" if bull else "Bear",
-            "MACD Bias":"Bull" if macd_bull else "Bear",
             "Vol Ratio":vol_ratio, "Vol Trend":vol_trend,
-            "Signal":signal,
+            "Signal":signal, "Live RSI": live_rsi,
         }
     except: return None
 

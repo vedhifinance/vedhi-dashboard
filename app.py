@@ -231,7 +231,9 @@ f1,f2,f3,f4,f5 = st.columns([1,1,1,1,1])
 with f1: rsi_min = st.slider("Min RSI", 0, 90, 15)
 with f2: rsi_max = st.slider("Max RSI", 10, 90, 40)
 with f3: setup_only = st.checkbox("EMA zone only", help="Price between EMA 20 and EMA 50")
+
 with f4: bull_only  = st.checkbox("Bullish trend only", help="EMA 20 > EMA 50")
+
 with f5: run = st.button("▶ Run screener", type="primary", use_container_width=True)
 
 if run:
@@ -509,12 +511,13 @@ with tab1:
         st.markdown("**➕ Add holding**")
         with st.form("sw_add_form", clear_on_submit=True):
             a1,a2,a3,a4 = st.columns(4)
-            with a1: sw_sym   = st.selectbox("Stock", list(NIFTY50.keys()), key="sw1_sym")
-            with a2: sw_qty   = st.number_input("Quantity", min_value=1, step=1, key="sw1_qty")
+            with a1: sw_sym   = st.selectbox("Stock", list(NIFTY50.keys()), key="sw_add_stock")
+            with a2: sw_qty   = st.number_input("Quantity", min_value=1, step=1, key="sw_add_qty")
             with a3: sw_price = st.number_input("Buy price (₹)", min_value=0.01,
-                                                 step=0.05, format="%.2f", key="sw1_bp")
-            with a4: sw_date  = st.date_input("Buy date", key="sw1_bd")
-            sw_notes = st.text_input("Notes (optional)", key="sw1_notes")
+
+                                                 step=0.05, format="%.2f")
+            with a4: sw_date  = st.date_input("Buy date", key="sw_add_date")
+            sw_notes = st.text_input("Notes (optional)", key="sw_add_notes")
             sw_submit = st.form_submit_button("Add holding", type="primary",
                                                use_container_width=True)
             if sw_submit and sw_qty > 0 and sw_price > 0:
@@ -640,11 +643,16 @@ with tab1:
                 holding_syms = [h["symbol"] for h in holdings]
                 s1,s2,s3,s4 = st.columns(4)
                 with s1: sell_sym   = st.selectbox("Stock to sell", holding_syms)
+
                 with s2: sell_qty   = st.number_input("Qty to sell", min_value=1, step=1)
+
                 with s3: sell_price = st.number_input("Sell price (₹)", min_value=0.01,
+
                                                        step=0.05, format="%.2f")
                 with s4: sell_date  = st.date_input("Sell date")
+
                 sell_notes = st.text_input("Notes (optional)")
+
                 sell_submit = st.form_submit_button("💸 Confirm sell", type="primary",
                                                      use_container_width=True)
 
@@ -1280,11 +1288,11 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
         st.markdown("**➕ Add holding**")
         with st.form("sc_holding_add", clear_on_submit=True):
             h1,h2,h3,h4 = st.columns(4)
-            with h1: sh_sym   = st.selectbox("Stock", list(NIFTY50.keys()), key="sc1_sym")
-            with h2: sh_qty   = st.number_input("Quantity", min_value=1, step=1, key="sc1_qty")
-            with h3: sh_price = st.number_input("Buy price (₹)", min_value=0.01, step=0.05, format="%.2f", key="sc1_bp")
-            with h4: sh_date  = st.date_input("Buy date", key="sc1_bd")
-            sh_notes = st.text_input("Notes (optional)", key="sc1_notes")
+            with h1: sh_sym   = st.selectbox("Stock", list(NIFTY50.keys()), key="sc_add_stock")
+            with h2: sh_qty   = st.number_input("Quantity", min_value=1, step=1, key="sc_add_qty")
+            with h3: sh_price = st.number_input("Buy price (₹)", min_value=0.01, step=0.05, format="%.2f")
+            with h4: sh_date  = st.date_input("Buy date", key="sc_add_date")
+            sh_notes = st.text_input("Notes (optional)", key="sc_add_notes")
             if st.form_submit_button("Add holding", type="primary", use_container_width=True):
                 if sh_qty > 0 and sh_price > 0:
                     sc_holdings.append({
@@ -1364,11 +1372,11 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
         else:
             with st.form("sc_sell_form", clear_on_submit=True):
                 s1,s2,s3,s4=st.columns(4)
-                with s1: ss=st.selectbox("Stock to sell", sorted(open_syms), key="f4_sym")
-                with s2: sq=st.number_input("Qty to sell", min_value=1, step=1, key="f4_qty")
-                with s3: sp=st.number_input("Sell price (₹)", min_value=0.01, step=0.05, format="%.2f", key="f4_sp")
-                with s4: sd=st.date_input("Sell date", key="f4_sd")
-                sn=st.text_input("Notes (optional)", key="f4_notes")
+                with s1: ss=st.selectbox("Stock to sell", sorted(open_syms), key="sw_sell_stock")
+                with s2: sq=st.number_input("Qty to sell", min_value=1, step=1)
+                with s3: sp=st.number_input("Sell price (₹)", min_value=0.01, step=0.05, format="%.2f")
+                with s4: sd=st.date_input("Sell date")
+                sn=st.text_input("Notes (optional)")
                 if st.form_submit_button("💸 Confirm sell", type="primary", use_container_width=True):
                     buys  = [h for h in sc_holdings if h["symbol"]==ss]
                     total = sum(b["qty"] for b in buys)
@@ -1573,10 +1581,12 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
                         sell_c1, sell_c2, sell_c3 = st.columns(3)
                         with sell_c1:
                             sell_qty   = st.number_input("Qty to sell", min_value=1,
+
                                                           max_value=total_shares, step=1,
                                                           key=f"sq_{sym}")
                         with sell_c2:
                             sell_price = st.number_input("Sell price (₹)", min_value=0.01,
+
                                                           step=0.05, format="%.2f", key=f"sp_{sym}")
                         with sell_c3:
                             sell_date  = st.date_input("Sell date", key=f"sd_{sym}")
@@ -1630,6 +1640,7 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
                     d1,d2 = st.columns([1,3])
                     with d1:
                         del_cyc = st.number_input("Delete cycle #", min_value=1,
+
                                                    max_value=len(cc_cycles), step=1,
                                                    key=f"dc_{sym}")
                     with d2:
@@ -2014,14 +2025,21 @@ with tab3:
     with st.form("bel_log_form", clear_on_submit=True):
         fc1,fc2,fc3,fc4 = st.columns(4)
         with fc1: entry_date  = st.date_input("Entry date")
+
         with fc2: expiry_date = st.date_input("Expiry date")
+
         with fc3: strike      = st.number_input("Strike price (₹)", min_value=0.0, step=0.5, format="%.2f")
+
         with fc4: premium     = st.number_input("Premium per share (₹)", min_value=0.0, step=0.05, format="%.2f")
+
 
         fc5,fc6,fc7 = st.columns(3)
         with fc5: expiry_spot = st.number_input("BEL price at expiry (₹)", min_value=0.0, step=0.05, format="%.2f")
+
         with fc6: outcome     = st.selectbox("Outcome", ["Option expired — kept shares","Shares called away at strike"])
+
         with fc7: notes       = st.text_input("Notes (optional)")
+
 
         saved = st.form_submit_button("💾 Save cycle", type="primary", use_container_width=True)
         if saved:
@@ -2073,6 +2091,7 @@ with tab3:
         d1,d2 = st.columns([1,3])
         with d1:
             del_id = st.number_input("Delete by ID", min_value=1, step=1, value=1)
+
         with d2:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("🗑️ Delete cycle", type="secondary"):

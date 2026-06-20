@@ -495,12 +495,15 @@ with tab1:
     sold     = sw_db.get("sold", [])
 
     # ── Sub tabs ──────────────────────────────────────────────────────────────
-    sw1, sw2, sw3 = st.tabs(["📂 Open Holdings", "💸 Sell a Stock", "📋 Sold History"])
+    sw_choice = st.radio("", ["📂 Open Holdings", "💸 Sell a Stock", "📋 Sold History"], horizontal=True, label_visibility="collapsed")
+    sw1_active = sw_choice == "📂 Open Holdings"
+    sw2_active = sw_choice == "💸 Sell a Stock"
+    sw3_active = sw_choice == "📋 Sold History"
 
     # ════════════════════════════════════════════════════════════════
     # SUB TAB 1 — Open Holdings
     # ════════════════════════════════════════════════════════════════
-    with sw1:
+    if sw1_active:
 
         # Add holding form
         st.markdown("**➕ Add holding**")
@@ -628,7 +631,7 @@ with tab1:
     # ════════════════════════════════════════════════════════════════
     # SUB TAB 2 — Sell a Stock
     # ════════════════════════════════════════════════════════════════
-    with sw2:
+    if sw2_active:
         st.markdown("**💸 Sell a stock**")
         if not holdings:
             st.info("No open holdings to sell.")
@@ -704,7 +707,7 @@ with tab1:
     # ════════════════════════════════════════════════════════════════
     # SUB TAB 3 — Sold History
     # ════════════════════════════════════════════════════════════════
-    with sw3:
+    if sw3_active:
         st.markdown("**📋 Sold history**")
         if not sold:
             st.info("No sold trades yet.")
@@ -1264,17 +1267,16 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
     sc_sold     = sc_db.get("sc_sold", [])
 
     # ── Sub tabs ──────────────────────────────────────────────────────────────
-    sc_tab1, sc_tab2, sc_tab3, sc_tab4 = st.tabs([
-        "📂 Open Holdings",
-        "💸 Sell a Stock",
-        "📋 Sold History",
-        "📊 Covered Call Tracker",
-    ])
+    sc_choice = st.radio("", ["📂 Open Holdings", "💸 Sell a Stock", "📋 Sold History", "📊 Covered Call Tracker"], horizontal=True, label_visibility="collapsed", key="sc_radio")
+    sc_tab1_active = sc_choice == "📂 Open Holdings"
+    sc_tab2_active = sc_choice == "💸 Sell a Stock"
+    sc_tab3_active = sc_choice == "📋 Sold History"
+    sc_tab4_active = sc_choice == "📊 Covered Call Tracker"
 
     # ════════════════════════════════════════════════════════════════
     # SUB TAB 1 — Open Holdings
     # ════════════════════════════════════════════════════════════════
-    with sc_tab1:
+    if sc_tab1_active:
         st.markdown("**➕ Add holding**")
         with st.form("sc_holding_add", clear_on_submit=True):
             h1,h2,h3,h4 = st.columns(4)
@@ -1354,7 +1356,7 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
     # ════════════════════════════════════════════════════════════════
     # SUB TAB 2 — Sell a Stock
     # ════════════════════════════════════════════════════════════════
-    with sc_tab2:
+    if sc_tab2_active:
         st.markdown("**💸 Sell a stock**")
         open_syms = list({h["symbol"] for h in sc_holdings})
         if not open_syms:
@@ -1398,7 +1400,7 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
     # ════════════════════════════════════════════════════════════════
     # SUB TAB 3 — Sold History
     # ════════════════════════════════════════════════════════════════
-    with sc_tab3:
+    if sc_tab3_active:
         st.markdown("**📋 Sold history**")
         if not sc_sold:
             st.info("No sold trades yet.")
@@ -1422,7 +1424,7 @@ That is the point — when one qualifies it is a genuine high-confidence setup.
     # ════════════════════════════════════════════════════════════════
     # SUB TAB 4 — Covered Call Tracker (existing functionality)
     # ════════════════════════════════════════════════════════════════
-    with sc_tab4:
+    if sc_tab4_active:
 
         # ── Portfolio summary ─────────────────────────────────────────────────────
         if positions:
